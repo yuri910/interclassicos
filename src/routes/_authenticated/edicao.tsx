@@ -14,7 +14,7 @@ import {
 } from "@/hooks/use-tournament";
 import { formatDate } from "@/lib/tournament";
 import { computeGroupStandings } from "@/lib/standings";
-import { resolvedQuartasPairs } from "@/lib/bracket";
+import { bracketMatchPlan } from "@/lib/bracket";
 import { createScheduler, parseClock, roundRobinRounds } from "@/lib/scheduling";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/_authenticated/edicao")({
   head: () => ({
@@ -403,6 +411,10 @@ function EdicaoPage() {
   const [intervalMin, setIntervalMin] = useState("60");
   const [fields, setFields] = useState("Campo 1");
   const [preview, setPreview] = useState<{ group: string; names: string[] }[]>([]);
+  const [playoffDialogOpen, setPlayoffDialogOpen] = useState(false);
+  const [playoffDate, setPlayoffDate] = useState("");
+  const [playoffStartTime, setPlayoffStartTime] = useState("08:00");
+  const [playoffIntervalMin, setPlayoffIntervalMin] = useState("60");
 
   const selectedEdition = (editions ?? []).find((e) => e.id === selectedEditionId);
   const editionTeams = (teams ?? []).filter((t) => t.edition_id === selectedEditionId);
@@ -419,9 +431,8 @@ function EdicaoPage() {
     matches: editionMatches,
     events: events ?? [],
   });
-  const groupA = groupStandings.find((g) => g.group === "A");
-  const groupB = groupStandings.find((g) => g.group === "B");
-  const groupsReadyForPlayoffs = Boolean(groupA?.complete && groupB?.complete);
+  const groupsReadyForPlayoffs =
+    groupStandings.length >= 2 && groupStandings.every((g) => g.complete);
 
   // Aplica ao formulário as regras/formato/agenda salvos da edição aberta.
   // Roda uma única vez por edição (guardado pelo ref), não a cada refetch.
@@ -922,12 +933,10 @@ function EdicaoPage() {
   const generatePlayoffs = useMutation({
     mutationFn: async () => {
       if (!selectedEditionId) throw new Error("Selecione a edição do campeonato");
-      if (!groupA || !groupB) {
-        throw new Error(
-          "Os playoffs automáticos exigem times nos grupos A e B (sorteio com 2 grupos)",
-        );
+      if (groupStandings.length < 2) {
+        throw new Error("Os playoffs automáticos exigem times em pelo menos 2 grupos");
       }
-      if (!groupA.complete || !groupB.complete) {
+      if (groupStandings.some((g) => !g.complete)) {
         throw new Error("Encerre todos os jogos da fase de grupos antes de gerar os playoffs");
       }
       const gold = Number(ouroSpots);
@@ -936,86 +945,82 @@ function EdicaoPage() {
         throw new Error("Quantidade para Série Ouro inválida");
       if (!Number.isInteger(silver) || silver < 1)
         throw new Error("Quantidade para Série Prata inválida");
-      if (gold + silver > groupA.rows.length || gold + silver > groupB.rows.length) {
-        throw new Error(
-          "Classificados para Ouro + Prata não podem ultrapassar o tamanho de cada grupo",
-        );
-      }
+      // Ouro + Prata podem ultrapassar o tamanho do grupo (ex.: grupo pequeno com muitas
+      // vagas configuradas) — os times do meio da tabela simplesmente disputam as duas
+      // séries. Os playoffs são gerados normalmente com os times realmente classificados.
 
-      const ouroPairs = resolvedQuartasPairs({
-        series: "Ouro",
+      // Plano do chaveamento inteiro (quartas, semi e final das duas séries — sem disputa
+      // de 3º lugar), considerando os resultados já lançados. Cada clique sincroniza: cria
+      // as partidas recém-liberadas (ex.: semi assim que as duas quartas que a alimentam
+      // terminam) sem mexer nas que já existem ou já têm resultado.
+      const plan = bracketMatchPlan({
         standings: groupStandings,
-        spots: gold,
+        ouroSpots: gold,
+        prataSpots: silver,
+        matches: editionMatches,
+        editionId: selectedEditionId,
       });
-      const prataPairs = resolvedQuartasPairs({
-        series: "Prata",
-        standings: groupStandings,
-        spots: silver,
-      });
-      if (ouroPairs.length === 0 && prataPairs.length === 0) {
+      if (plan.length === 0) {
         throw new Error("Não foi possível determinar os confrontos — confira o formato salvo");
       }
 
-      // Substitui qualquer playoff gerado antes (ex.: formato mudou).
-      const oldIds = editionMatches
-        .filter((match) =>
-          ["oitavas", "quartas", "semi", "terceiro", "final"].includes(match.phase),
+      // Partidas de playoff que não fazem mais parte do plano atual (ex.: formato mudou
+      // antes de qualquer jogo começar) são substituídas; jogos já iniciados, encerrados
+      // ou com lançamentos na súmula nunca são apagados automaticamente.
+      const planMatchIds = new Set(
+        plan
+          .filter((entry) => entry.existingMatchId)
+          .map((entry) => entry.existingMatchId as string),
+      );
+      const staleIds = editionMatches
+        .filter(
+          (match) =>
+            ["oitavas", "quartas", "semi", "terceiro", "final"].includes(match.phase) &&
+            match.status === "agendada" &&
+            !(events ?? []).some((event) => event.match_id === match.id) &&
+            !planMatchIds.has(match.id),
         )
         .map((match) => match.id);
-      if (oldIds.length > 0) {
-        const { error: eventsError } = await supabase
-          .from("match_events")
+      if (staleIds.length > 0) {
+        const { error: oldMatchesError } = await supabase
+          .from("matches")
           .delete()
-          .in("match_id", oldIds);
-        if (eventsError) throw eventsError;
-        const { error: oldMatchesError } = await supabase.from("matches").delete().in("id", oldIds);
+          .in("id", staleIds);
         if (oldMatchesError) throw oldMatchesError;
       }
+
+      const toCreate = plan.filter((entry) => !entry.existingMatchId);
+      if (toCreate.length === 0) return 0;
 
       const fieldList = fields
         .split(",")
         .map((field) => field.trim())
         .filter(Boolean);
       if (fieldList.length === 0) throw new Error("Informe ao menos um campo");
-      const step = Number(intervalMin);
+      if (!playoffDate.trim()) throw new Error("Informe a data dos playoffs");
+      const step = Number(playoffIntervalMin);
       if (!Number.isInteger(step) || step < 10 || step > 480)
         throw new Error("Intervalo entre jogos inválido");
-      const sortedDates = [...eventDates].sort();
-      const dayStartMinutes = parseClock(dayStartTime.trim());
-      const dayEndMinutes = parseClock(dayEndTime.trim());
-      const blockedWindows = blockedRanges
-        .filter((range) => range.start.trim() !== "" || range.end.trim() !== "")
-        .map((range) => ({
-          start: parseClock(range.start, "Horário bloqueado"),
-          end: parseClock(range.end, "Horário bloqueado"),
-        }));
+      const dayStartMinutes = parseClock(playoffStartTime.trim(), "Horário de início");
 
       const scheduler = createScheduler({
-        sortedDates,
+        sortedDates: [playoffDate],
         dayStartMinutes,
-        dayEndMinutes,
-        blockedWindows,
+        dayEndMinutes: 23 * 60 + 59,
+        blockedWindows: [],
         fields: fieldList,
         stepMinutes: step,
       });
-      const lastGroupKickoff = editionMatches
-        .filter((match) => match.phase === "grupos")
-        .map((match) => new Date(match.kickoff_at).getTime())
-        .reduce((max, time) => Math.max(max, time), 0);
-      if (lastGroupKickoff > 0) scheduler.seedAfter(new Date(lastGroupKickoff));
 
-      const rows = [
-        ...ouroPairs.map((pair) => ({ ...pair, group_name: "Ouro" as const })),
-        ...prataPairs.map((pair) => ({ ...pair, group_name: "Prata" as const })),
-      ].map((pair) => {
+      const rows = toCreate.map((entry) => {
         const { kickoff, field } = scheduler.next();
         return {
-          phase: "quartas" as const,
-          group_name: pair.group_name,
+          phase: entry.phase,
+          group_name: entry.series,
           kickoff_at: kickoff.toISOString(),
           field,
-          home_team_id: pair.homeTeamId,
-          away_team_id: pair.awayTeamId,
+          home_team_id: entry.homeTeamId,
+          away_team_id: entry.awayTeamId,
           edition_id: selectedEditionId,
         };
       });
@@ -1026,8 +1031,11 @@ function EdicaoPage() {
     },
     onSuccess: (count) => {
       invalidate();
+      setPlayoffDialogOpen(false);
       toast.success(
-        `Playoffs gerados: ${count} jogos de quartas criados a partir da classificação.`,
+        count > 0
+          ? `Playoffs atualizados: ${count} jogo(s) criados a partir da classificação e dos resultados já lançados. Já disponíveis para o mesário.`
+          : "Playoffs já estão em dia — nenhum confronto novo foi liberado ainda.",
       );
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1702,30 +1710,90 @@ function EdicaoPage() {
                       Playoffs (quartas) a partir da classificação real
                     </p>
                     <div className="mt-2 flex flex-wrap gap-3 text-sm text-muted-foreground">
-                      <span>
-                        Grupo A:{" "}
-                        {groupA ? (groupA.complete ? "completo" : "em andamento") : "sem times"}
-                      </span>
-                      <span>
-                        Grupo B:{" "}
-                        {groupB ? (groupB.complete ? "completo" : "em andamento") : "sem times"}
-                      </span>
+                      {groupStandings.length === 0 ? (
+                        <span>sem times</span>
+                      ) : (
+                        groupStandings.map((g) => (
+                          <span key={g.group}>
+                            Grupo {g.group}: {g.complete ? "completo" : "em andamento"}
+                          </span>
+                        ))
+                      )}
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">
                       {groupsReadyForPlayoffs
-                        ? "Os dois grupos terminaram. Gerar playoffs cria (ou substitui) as partidas de quartas com os times realmente classificados."
+                        ? "Os grupos terminaram. Gerar playoffs cria de uma vez todas as partidas de Ouro e Prata já decidíveis — quartas, semi e final, sem disputa de 3º lugar, assim que os jogos anteriores forem encerrados. Clique de novo a cada rodada concluída para liberar a próxima."
                         : "Aguardando todos os jogos da fase de grupos serem encerrados. Enquanto isso, o chaveamento na aba Partidas mostra vagas por posição."}
                     </p>
                     <Button
                       className="mt-3 w-full"
                       variant="secondary"
-                      onClick={() => generatePlayoffs.mutate()}
+                      onClick={() => {
+                        if (playoffDate.trim() === "") {
+                          const lastEventDate = [...eventDates].sort().at(-1);
+                          setPlayoffDate(lastEventDate ?? new Date().toISOString().slice(0, 10));
+                        }
+                        setPlayoffDialogOpen(true);
+                      }}
                       disabled={generatePlayoffs.isPending || !groupsReadyForPlayoffs}
                     >
                       Gerar/Atualizar playoffs
                     </Button>
                   </div>
                 </section>
+
+                <Dialog open={playoffDialogOpen} onOpenChange={setPlayoffDialogOpen}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Gerar/Atualizar playoffs</DialogTitle>
+                      <DialogDescription>
+                        Informe a data, o horário de início e o intervalo entre os jogos. Todas as
+                        partidas de Ouro e Prata já decidíveis (quartas e, conforme cada rodada for
+                        encerrada, semi/final — sem disputa de 3º lugar) são criadas automaticamente
+                        e já ficam disponíveis para o mesário.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="playoff-date">Data</Label>
+                        <Input
+                          id="playoff-date"
+                          type="date"
+                          value={playoffDate}
+                          onChange={(e) => setPlayoffDate(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="playoff-start">Horário de início</Label>
+                        <TimeField24
+                          id="playoff-start"
+                          value={playoffStartTime}
+                          onChange={setPlayoffStartTime}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="playoff-interval">Intervalo entre jogos (min)</Label>
+                        <Input
+                          id="playoff-interval"
+                          inputMode="numeric"
+                          value={playoffIntervalMin}
+                          onChange={(e) => setPlayoffIntervalMin(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="ghost" onClick={() => setPlayoffDialogOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button
+                        onClick={() => generatePlayoffs.mutate()}
+                        disabled={generatePlayoffs.isPending || !playoffDate}
+                      >
+                        {generatePlayoffs.isPending ? "Gerando..." : "Gerar/Atualizar playoffs"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
 
                 <section className="surface-card p-5 mt-6">
                   <h2 className="text-stencil text-lg font-bold">Sorteio da fase de grupos</h2>

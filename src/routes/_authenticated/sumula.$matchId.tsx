@@ -11,7 +11,7 @@ import {
   usePlayers,
   useTeams,
 } from "@/hooks/use-tournament";
-import { formatKickoff } from "@/lib/tournament";
+import { formatKickoff, matchGroupLabel, phaseLabel } from "@/lib/tournament";
 import { computeSuspensions } from "@/lib/suspensions";
 import { FoulsPanel } from "@/components/FoulsPanel";
 import { Button } from "@/components/ui/button";
@@ -235,8 +235,11 @@ function SumulaPage() {
 
       <header className="surface-card mt-4 p-5 text-center">
         <p className="text-xs text-muted-foreground">
-          {formatKickoff(match.kickoff_at)} · {match.field}
+          {phaseLabel(match.phase)} · {formatKickoff(match.kickoff_at)} · {match.field}
         </p>
+        {matchGroupLabel(match) && (
+          <p className="mt-0.5 text-sm font-semibold text-primary">{matchGroupLabel(match)}</p>
+        )}
         <h1 className="text-stencil mt-2 text-2xl font-bold sm:text-3xl">
           {teamName(match.home_team_id)}{" "}
           <span className="text-primary">
@@ -299,7 +302,10 @@ function SumulaPage() {
             </Select>
           </div>
           <div className="flex gap-2">
-            <Button disabled={!mvpValue || saveMvp.isPending} onClick={() => saveMvp.mutate(mvpValue)}>
+            <Button
+              disabled={!mvpValue || saveMvp.isPending}
+              onClick={() => saveMvp.mutate(mvpValue)}
+            >
               Salvar craque
             </Button>
             {match.mvp_player_id && (
@@ -433,7 +439,11 @@ function SumulaPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" disabled={updateEvent.isPending} onClick={() => updateEvent.mutate()}>
+                  <Button
+                    size="sm"
+                    disabled={updateEvent.isPending}
+                    onClick={() => updateEvent.mutate()}
+                  >
                     <Check className="size-4" /> Salvar correção
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setEditId(null)}>

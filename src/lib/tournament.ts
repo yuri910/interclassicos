@@ -21,6 +21,12 @@ export function statusLabel(value: string) {
   return STATUS.find((s) => s.value === value)?.label ?? value;
 }
 
+/** Rótulo do grupo/série de uma partida — "Grupo A" na fase de grupos, "Série Ouro/Prata" nos playoffs. */
+export function matchGroupLabel(match: { phase: string; group_name: string | null }) {
+  if (!match.group_name) return null;
+  return match.phase === "grupos" ? `Grupo ${match.group_name}` : `Série ${match.group_name}`;
+}
+
 /** Sempre dd/mm/yyyy, independente da localidade do navegador. */
 export function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR", {

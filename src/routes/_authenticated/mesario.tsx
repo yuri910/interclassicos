@@ -5,7 +5,7 @@ import { ClipboardList, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useEditions, useEvents, useMatches, useTeams } from "@/hooks/use-tournament";
-import { formatKickoff, phaseLabel, statusLabel } from "@/lib/tournament";
+import { formatKickoff, matchGroupLabel, phaseLabel, statusLabel } from "@/lib/tournament";
 import { computeGroupStandings } from "@/lib/standings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -185,6 +185,11 @@ function MesarioPage() {
                     <span>· {m.field}</span>
                     <span>· {statusLabel(m.status)}</span>
                   </div>
+                  {matchGroupLabel(m) && (
+                    <p className="mt-0.5 text-xs font-semibold text-primary">
+                      {matchGroupLabel(m)}
+                    </p>
+                  )}
                   <p className="text-stencil mt-1 text-lg font-bold">
                     {teamName(m.home_team_id)} {m.home_score} x {m.away_score}{" "}
                     {teamName(m.away_team_id)}
@@ -228,6 +233,11 @@ function MesarioPage() {
                         <span>· {m.field}</span>
                         <span>· {statusLabel(m.status)}</span>
                       </div>
+                      {matchGroupLabel(m) && (
+                        <p className="mt-0.5 text-xs font-semibold text-primary">
+                          {matchGroupLabel(m)}
+                        </p>
+                      )}
                       <p className="text-stencil mt-1 text-lg font-bold">
                         {teamName(m.home_team_id)} {m.home_score} x {m.away_score}{" "}
                         {teamName(m.away_team_id)}

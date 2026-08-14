@@ -6,10 +6,13 @@ export type Series = "Ouro" | "Prata";
 
 export type QualifierSlot =
   | { kind: "team"; teamId: string; name: string; rank: number; group: string }
-  | { kind: "placeholder"; label: string; rank: number; group: string };
+  | { kind: "placeholder"; label: string; rank: number; group: string }
+  | { kind: "bye" };
 
 export type BracketSlot =
-  { kind: "team"; teamId: string; name: string } | { kind: "placeholder"; label: string };
+  | { kind: "team"; teamId: string; name: string }
+  | { kind: "placeholder"; label: string }
+  | { kind: "bye" };
 
 export type BracketMatchup = {
   key: string;
@@ -19,15 +22,13 @@ export type BracketMatchup = {
 };
 
 export type BracketRound = {
-  phase: "quartas" | "semi" | "final" | "terceiro";
+  phase: "oitavas" | "quartas" | "semi" | "final";
   label: string;
   matchups: BracketMatchup[];
 };
 
 export type SeriesBracketData = {
   series: Series;
-  groupA: string;
-  groupB: string;
   rounds: BracketRound[];
 };
 
@@ -36,6 +37,12 @@ export type SeriesBracketData = {
  * últimos colocados). Sempre retorna `spots` posições, mesmo com o grupo
  * incompleto — nesse caso a vaga vira um placeholder pela posição
  * ("Vaga 2º Lugar do Grupo A") em vez do time.
+ *
+ * `spots` pode ultrapassar o tamanho do grupo (configuração de Ouro + Prata
+ * maior que o grupo comporta) — não há problema: os times do meio da tabela
+ * acabam disputando as duas séries. As posições que não existem de fato
+ * (rank fora de [1, teamCount]) viram um placeholder informativo em vez de
+ * uma "vaga" com posição inválida.
  */
 function groupQualifiers(
   standing: GroupStandings | undefined,
@@ -48,10 +55,16 @@ function groupQualifiers(
   for (let i = 0; i < spots; i++) {
     const rankIndex = fromBottom ? teamCount - spots + i : i;
     const rank = rankIndex + 1;
-    const row =
-      standing?.complete && rankIndex >= 0 && rankIndex < teamCount
-        ? standing.rows[rankIndex]
-        : undefined;
+    if (rank < 1 || rank > teamCount) {
+      out.push({
+        kind: "placeholder",
+        label: `Vaga extra do Grupo ${group} (grupo tem só ${teamCount} ${teamCount === 1 ? "time" : "times"})`,
+        rank,
+        group,
+      });
+      continue;
+    }
+    const row = standing?.complete ? standing.rows[rankIndex] : undefined;
     if (row) {
       out.push({ kind: "team", teamId: row.teamId, name: row.name, rank, group });
     } else {
@@ -66,11 +79,79 @@ function groupQualifiers(
   return out;
 }
 
-function crossPairs<T>(a: T[], b: T[]): Array<[T, T]> {
-  return a.map((item, i) => [item, b[a.length - 1 - i]!] as const);
+function nextPowerOfTwo(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return p;
+}
+
+/**
+ * Vagas da série somando todos os grupos — não só A e B. Times de todos os
+ * grupos configurados na edição disputam a mesma Série Ouro/Prata.
+ *
+ * Seed geral por classificação: os classificados de todos os grupos entram
+ * numa lista só, primeiro por posição (todos os 1º lugares antes de todos
+ * os 2º lugares, já que grupos podem ter tamanhos/adversários diferentes e
+ * pontuação não é diretamente comparável entre eles) e, dentro da mesma
+ * posição, por força real (pontos, saldo, gols pró) como desempate.
+ *
+ * A quantidade de classificados raramente fecha numa potência de 2 (ex.: 3
+ * grupos × 2 vagas = 6 times) — a lista é completada com "folgas" (byes) até
+ * a próxima potência de 2, que caem sobre os melhores seeds (ficam no fim da
+ * lista, e o cruzamento sempre pareia o melhor com o pior). Isso garante que
+ * o chaveamento sempre feche numa árvore limpa (quartas→semi→final).
+ */
+function seriesQualifiers(
+  standings: GroupStandings[],
+  spots: number,
+  fromBottom: boolean,
+): QualifierSlot[] {
+  const perGroup = standings.map((standing) =>
+    groupQualifiers(standing, standing.group, spots, fromBottom),
+  );
+
+  const seeded: QualifierSlot[] = [];
+  for (let tier = 0; tier < spots; tier++) {
+    const tierSlots = perGroup.map((slots, groupIndex) => {
+      const slot = slots[tier]!;
+      const row =
+        slot.kind === "team"
+          ? standings[groupIndex]?.rows.find((r) => r.teamId === slot.teamId)
+          : undefined;
+      return { slot, row };
+    });
+    tierSlots.sort((a, b) => {
+      if (!a.row && !b.row) return 0;
+      if (!a.row) return 1;
+      if (!b.row) return -1;
+      return (
+        b.row.points - a.row.points ||
+        b.row.sg - a.row.sg ||
+        b.row.gp - a.row.gp ||
+        a.row.name.localeCompare(b.row.name)
+      );
+    });
+    seeded.push(...tierSlots.map((t) => t.slot));
+  }
+
+  const target = nextPowerOfTwo(seeded.length);
+  while (seeded.length < target) seeded.push({ kind: "bye" });
+
+  return seeded;
+}
+
+/** Cruza a lista de classificados: melhor seed geral contra pior, e assim por diante. */
+function seededCrossPairs<T>(list: T[]): Array<[T, T]> {
+  const pairs: Array<[T, T]> = [];
+  const half = Math.floor(list.length / 2);
+  for (let i = 0; i < half; i++) {
+    pairs.push([list[i]!, list[list.length - 1 - i]!]);
+  }
+  return pairs;
 }
 
 function slotFromQualifier(q: QualifierSlot): BracketSlot {
+  if (q.kind === "bye") return { kind: "bye" };
   return q.kind === "team"
     ? { kind: "team", teamId: q.teamId, name: q.name }
     : { kind: "placeholder", label: q.label };
@@ -97,20 +178,15 @@ function findRealMatch(
 }
 
 function winnerSlot(matchup: BracketMatchup, placeholderLabel: string): BracketSlot {
+  // Folga: o time avança direto, sem precisar de partida.
+  if (matchup.home.kind === "team" && matchup.away.kind === "bye") return matchup.home;
+  if (matchup.away.kind === "team" && matchup.home.kind === "bye") return matchup.away;
+
   const m = matchup.match;
   if (m && m.status === "encerrada" && m.home_score !== m.away_score) {
     const winnerId = m.home_score > m.away_score ? m.home_team_id : m.away_team_id;
     const winnerSide = m.home_score > m.away_score ? matchup.home : matchup.away;
     if (winnerId && winnerSide.kind === "team") return winnerSide;
-  }
-  return { kind: "placeholder", label: placeholderLabel };
-}
-
-function loserSlot(matchup: BracketMatchup, placeholderLabel: string): BracketSlot {
-  const m = matchup.match;
-  if (m && m.status === "encerrada" && m.home_score !== m.away_score) {
-    const loserSide = m.home_score > m.away_score ? matchup.away : matchup.home;
-    if (loserSide.kind === "team") return loserSide;
   }
   return { kind: "placeholder", label: placeholderLabel };
 }
@@ -135,12 +211,22 @@ function buildRound(
   return { phase, label: phaseLabel(phase), matchups };
 }
 
+const ROUND_ORDER: BracketRound["phase"][] = ["oitavas", "quartas", "semi", "final"];
+
+/** Últimas `totalRounds` fases da sequência oitavas→quartas→semi→final. */
+function phasesForRounds(totalRounds: number): BracketRound["phase"][] {
+  return ROUND_ORDER.slice(Math.max(0, ROUND_ORDER.length - totalRounds));
+}
+
 /**
  * Monta o chaveamento completo de uma série (Ouro ou Prata) a partir da
- * classificação real dos grupos A e B. Vagas ainda não decididas aparecem
- * como placeholders pela posição; rodadas seguintes (semi/final/terceiro)
- * só são projetadas automaticamente quando o número de confrontos da
- * primeira rodada reduz de forma limpa (2 ou 4 jogos).
+ * classificação real de todos os grupos da edição (2 ou mais). Vagas ainda
+ * não decididas aparecem como placeholders pela posição. A quantidade de
+ * classificados é completada com folgas até a próxima potência de 2 (ver
+ * `seriesQualifiers`), então a árvore sempre fecha em rodadas limpas — 2, 4,
+ * 8 ou 16 confrontos na entrada — com o número de rodadas (oitavas/quartas/
+ * semi/final) calculado a partir disso. Sem disputa de 3º lugar — o
+ * perdedor da semifinal é eliminado.
  */
 export function buildSeriesBracket(params: {
   series: Series;
@@ -150,83 +236,89 @@ export function buildSeriesBracket(params: {
   editionId: string | null;
 }): SeriesBracketData | null {
   const { series, standings, spots, matches, editionId } = params;
-  if (spots < 1) return null;
-
-  const groupA = standings.find((s) => s.group === "A");
-  const groupB = standings.find((s) => s.group === "B");
-  if (!groupA || !groupB) return null;
+  if (spots < 1 || standings.length < 2) return null;
 
   const fromBottom = series === "Prata";
-  const qualifiersA = groupQualifiers(groupA, "A", spots, fromBottom);
-  const qualifiersB = groupQualifiers(groupB, "B", spots, fromBottom);
+  const qualifiers = seriesQualifiers(standings, spots, fromBottom);
+  if (qualifiers.length < 2) return null;
 
-  const quartasSlots = crossPairs(qualifiersA, qualifiersB).flatMap(([a, b]) => [
+  let slots = seededCrossPairs(qualifiers).flatMap(([a, b]) => [
     slotFromQualifier(a),
     slotFromQualifier(b),
   ]);
 
+  const totalRounds = Math.round(Math.log2(slots.length));
+  const phases = phasesForRounds(totalRounds);
+
   const rounds: BracketRound[] = [];
-  const quartas = buildRound("quartas", quartasSlots, matches, editionId, series);
-  rounds.push(quartas);
-
-  if (quartas.matchups.length === 4) {
-    const semiSlots = quartas.matchups.flatMap((m, i) => [
-      winnerSlot(m, `Vencedor do Jogo ${i + 1}`),
-    ]);
-    const semi = buildRound("semi", semiSlots, matches, editionId, series);
-    rounds.push(semi);
-
-    const finalSlots = semi.matchups.flatMap((m, i) => [
-      winnerSlot(m, `Vencedor da Semifinal ${i + 1}`),
-    ]);
-    rounds.push(buildRound("final", finalSlots, matches, editionId, series));
-
-    const terceiroSlots = semi.matchups.flatMap((m, i) => [
-      loserSlot(m, `Perdedor da Semifinal ${i + 1}`),
-    ]);
-    rounds.push(buildRound("terceiro", terceiroSlots, matches, editionId, series));
-  } else if (quartas.matchups.length === 2) {
-    const finalSlots = quartas.matchups.flatMap((m, i) => [
-      winnerSlot(m, `Vencedor do Jogo ${i + 1}`),
-    ]);
-    rounds.push(buildRound("final", finalSlots, matches, editionId, series));
-
-    const terceiroSlots = quartas.matchups.flatMap((m, i) => [
-      loserSlot(m, `Perdedor do Jogo ${i + 1}`),
-    ]);
-    rounds.push(buildRound("terceiro", terceiroSlots, matches, editionId, series));
+  for (let r = 0; r < totalRounds; r++) {
+    const round = buildRound(phases[r]!, slots, matches, editionId, series);
+    rounds.push(round);
+    if (r === totalRounds - 1) break;
+    slots = round.matchups.map((m, i) => winnerSlot(m, `Vencedor de ${round.label} ${i + 1}`));
   }
 
-  return { series, groupA: "A", groupB: "B", rounds };
+  return { series, rounds };
 }
 
-/**
- * Pares (mandante/visitante) da rodada de quartas prontos para gerar as
- * partidas reais no banco — só inclui pares em que os dois times já foram
- * decididos pela classificação (grupo completo).
- */
-export function resolvedQuartasPairs(params: {
+export type BracketPlanEntry = {
   series: Series;
+  phase: BracketRound["phase"];
+  homeTeamId: string;
+  awayTeamId: string;
+  /** Id da partida real já existente para esse confronto, se houver. */
+  existingMatchId: string | null;
+};
+
+/**
+ * Plano completo dos confrontos já decidíveis das duas séries (Ouro e
+ * Prata), em todas as rodadas — não só quartas. Cada entrada é um confronto
+ * cujos dois lados já são times reais (classificação dos grupos para
+ * quartas, vencedores de partidas encerradas para semi/final).
+ * `existingMatchId` indica se a partida real já foi criada; quando `null`,
+ * é um confronto novo, liberado pelos resultados já lançados, que ainda
+ * precisa virar uma partida para o mesário.
+ *
+ * Usado por "Gerar/Atualizar playoffs" para sincronizar o banco com o
+ * chaveamento inteiro a cada clique, em vez de só a primeira rodada — assim,
+ * conforme os jogos vão sendo encerrados pelo mesário, um novo clique já
+ * cria a próxima rodada liberada.
+ */
+export function bracketMatchPlan(params: {
   standings: GroupStandings[];
-  spots: number;
-}): Array<{ homeTeamId: string; awayTeamId: string }> {
-  const { series, standings, spots } = params;
-  const groupA = standings.find((s) => s.group === "A");
-  const groupB = standings.find((s) => s.group === "B");
-  if (!groupA || !groupB || !groupA.complete || !groupB.complete) return [];
-
-  const fromBottom = series === "Prata";
-  const qualifiersA = groupQualifiers(groupA, "A", spots, fromBottom);
-  const qualifiersB = groupQualifiers(groupB, "B", spots, fromBottom);
-
-  return crossPairs(qualifiersA, qualifiersB)
-    .filter(([a, b]) => a.kind === "team" && b.kind === "team")
-    .map(([a, b]) => ({
-      homeTeamId: (a as Extract<QualifierSlot, { kind: "team" }>).teamId,
-      awayTeamId: (b as Extract<QualifierSlot, { kind: "team" }>).teamId,
-    }));
+  ouroSpots: number;
+  prataSpots: number;
+  matches: Match[];
+  editionId: string | null;
+}): BracketPlanEntry[] {
+  const { standings, ouroSpots, prataSpots, matches, editionId } = params;
+  const plan: BracketPlanEntry[] = [];
+  const seriesSpots: Array<[Series, number]> = [
+    ["Ouro", ouroSpots],
+    ["Prata", prataSpots],
+  ];
+  for (const [series, spots] of seriesSpots) {
+    const data = buildSeriesBracket({ series, standings, spots, matches, editionId });
+    if (!data) continue;
+    for (const round of data.rounds) {
+      for (const matchup of round.matchups) {
+        if (matchup.home.kind === "team" && matchup.away.kind === "team") {
+          plan.push({
+            series,
+            phase: round.phase,
+            homeTeamId: matchup.home.teamId,
+            awayTeamId: matchup.away.teamId,
+            existingMatchId: matchup.match?.id ?? null,
+          });
+        }
+      }
+    }
+  }
+  return plan;
 }
 
 export function bracketSlotLabel(slot: BracketSlot): string {
-  return slot.kind === "team" ? slot.name : slot.label;
+  if (slot.kind === "team") return slot.name;
+  if (slot.kind === "bye") return "—";
+  return slot.label;
 }

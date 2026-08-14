@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
 });
 
-const PHASES = ["grupos", "oitavas", "quartas", "semi", "terceiro", "final"] as const;
+const PHASES = ["grupos", "oitavas", "quartas", "semi", "final"] as const;
 
 function AdminPage() {
   const qc = useQueryClient();

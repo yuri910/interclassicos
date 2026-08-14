@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { MapPin, Clock } from "lucide-react";
 import {
   useEditions,
@@ -160,6 +161,103 @@ function BracketPlaceholderCard({ matchup }: { matchup: BracketMatchup }) {
   );
 }
 
+/** Card de uma folga (bye): quando o número de classificados não fecha uma
+ * potência de 2, alguns times avançam direto de rodada sem jogar. */
+function BracketByeCard({ matchup }: { matchup: BracketMatchup }) {
+  const teamSlot = matchup.home.kind !== "bye" ? matchup.home : matchup.away;
+  return (
+    <article className="surface-card border-dashed p-4 opacity-90">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <Badge variant="secondary" className="text-stencil">
+          Folga
+        </Badge>
+      </div>
+      <p
+        className={cn(
+          "mt-3 truncate text-sm font-bold",
+          teamSlot.kind === "placeholder" && "italic text-muted-foreground",
+        )}
+      >
+        {bracketSlotLabel(teamSlot)}{" "}
+        <span className="font-normal text-muted-foreground">avança direto, sem jogar</span>
+      </p>
+    </article>
+  );
+}
+
+type CardRect = { top: number; bottom: number; centerY: number; left: number; right: number };
+
+/** Compara com arredondamento — evita loop de re-render por jitter de subpixel. */
+function rectsEqual(a: Map<string, CardRect>, b: Map<string, CardRect>) {
+  if (a.size !== b.size) return false;
+  for (const [key, ra] of a) {
+    const rb = b.get(key);
+    if (!rb) return false;
+    if (
+      Math.round(ra.top) !== Math.round(rb.top) ||
+      Math.round(ra.left) !== Math.round(rb.left) ||
+      Math.round(ra.right) !== Math.round(rb.right) ||
+      Math.round(ra.bottom) !== Math.round(rb.bottom)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Mede a posição real (relativa ao container) de cada card do chaveamento
+ * para desenhar as linhas de conexão por cima, em vez de tentar acertar a
+ * geometria só no CSS — assim a árvore fica correta mesmo com cards de
+ * altura variável, telas estreitas com scroll horizontal, ou zoom.
+ */
+function useBracketConnectors() {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [rects, setRects] = useState<Map<string, CardRect>>(new Map());
+
+  const registerCard = useCallback(
+    (key: string) => (el: HTMLDivElement | null) => {
+      if (el) cardRefs.current.set(key, el);
+      else cardRefs.current.delete(key);
+    },
+    [],
+  );
+
+  const measure = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const next = new Map<string, CardRect>();
+    for (const [key, el] of cardRefs.current) {
+      const r = el.getBoundingClientRect();
+      next.set(key, {
+        top: r.top - containerRect.top,
+        bottom: r.bottom - containerRect.top,
+        centerY: r.top - containerRect.top + r.height / 2,
+        left: r.left - containerRect.left,
+        right: r.right - containerRect.left,
+      });
+    }
+    setRects((prev) => (rectsEqual(prev, next) ? prev : next));
+  }, []);
+
+  useLayoutEffect(() => {
+    measure();
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(container);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  });
+
+  return { containerRef, registerCard, rects };
+}
+
 function SeriesBracket({
   series,
   standings,
@@ -176,6 +274,49 @@ function SeriesBracket({
   editionId: string | null;
 }) {
   const bracket = buildSeriesBracket({ series, standings, spots, matches, editionId });
+  const { containerRef, registerCard, rects } = useBracketConnectors();
+
+  if (!bracket || bracket.rounds.length === 0) {
+    return (
+      <section>
+        <h3
+          className={
+            series === "Ouro"
+              ? "text-stencil text-lg font-bold text-amber-500"
+              : "text-stencil text-lg font-bold text-slate-400"
+          }
+        >
+          Série {series}
+        </h3>
+        <div className="surface-card mt-3 p-6 text-center text-sm text-muted-foreground">
+          Confrontos da Série {series} ainda não foram definidos.
+        </div>
+      </section>
+    );
+  }
+
+  const connectors: Array<{ key: string; d: string }> = [];
+  for (let ri = 0; ri < bracket.rounds.length - 1; ri++) {
+    const round = bracket.rounds[ri]!;
+    for (let i = 0; i < round.matchups.length; i += 2) {
+      const top = rects.get(`${ri}-${i}`);
+      const bottom = rects.get(`${ri}-${i + 1}`);
+      const next = rects.get(`${ri + 1}-${i / 2}`);
+      if (!top || !bottom || !next) continue;
+      const midX = (top.right + next.left) / 2;
+      const elbowX = (midX + next.left) / 2;
+      const midY = (top.centerY + bottom.centerY) / 2;
+      connectors.push({
+        key: `${ri}-${i}`,
+        d: [
+          `M ${top.right} ${top.centerY} H ${midX}`,
+          `M ${bottom.right} ${bottom.centerY} H ${midX}`,
+          `M ${midX} ${top.centerY} V ${bottom.centerY}`,
+          `M ${midX} ${midY} H ${elbowX} V ${next.centerY} H ${next.left}`,
+        ].join(" "),
+      });
+    }
+  }
 
   return (
     <section>
@@ -188,30 +329,35 @@ function SeriesBracket({
       >
         Série {series}
       </h3>
-      {!bracket || bracket.rounds.length === 0 ? (
-        <div className="surface-card mt-3 p-6 text-center text-sm text-muted-foreground">
-          Confrontos da Série {series} ainda não foram definidos.
-        </div>
-      ) : (
-        <div className="mt-3 flex gap-4 overflow-x-auto pb-2">
-          {bracket.rounds.map((round) => (
-            <div key={round.phase} className="flex w-64 shrink-0 flex-col gap-3">
+      <div className="mt-3 overflow-x-auto pb-2">
+        <div ref={containerRef} className="relative flex w-max gap-12">
+          <svg className="pointer-events-none absolute inset-0 h-full w-full">
+            {connectors.map((c) => (
+              <path key={c.key} d={c.d} fill="none" className="stroke-border" strokeWidth={2} />
+            ))}
+          </svg>
+          {bracket.rounds.map((round, ri) => (
+            <div key={round.phase} className="flex w-64 shrink-0 flex-col gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {round.label}
               </p>
-              <div className="flex flex-1 flex-col justify-around gap-3">
-                {round.matchups.map((m) =>
-                  m.match ? (
-                    <MatchCard key={m.key} match={m.match} teams={teams} />
-                  ) : (
-                    <BracketPlaceholderCard key={m.key} matchup={m} />
-                  ),
-                )}
+              <div className="flex flex-1 flex-col justify-around gap-6">
+                {round.matchups.map((m, mi) => (
+                  <div key={m.key} ref={registerCard(`${ri}-${mi}`)}>
+                    {m.home.kind === "bye" || m.away.kind === "bye" ? (
+                      <BracketByeCard matchup={m} />
+                    ) : m.match ? (
+                      <MatchCard match={m.match} teams={teams} />
+                    ) : (
+                      <BracketPlaceholderCard matchup={m} />
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           ))}
         </div>
-      )}
+      </div>
     </section>
   );
 }
