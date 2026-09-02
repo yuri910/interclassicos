@@ -6,7 +6,16 @@ export type Series = "Ouro" | "Prata";
 
 export type QualifierSlot =
   | { kind: "team"; teamId: string; name: string; rank: number; group: string }
-  | { kind: "placeholder"; label: string; rank: number; group: string }
+  | {
+      kind: "placeholder";
+      label: string;
+      rank: number;
+      group: string;
+      /** Vaga que nunca vai virar time real (grupo pequeno demais, ou vaga já classificada
+       * pra outra série) — diferente de uma vaga "pendente" (grupo ainda não fechou), que
+       * ainda pode resolver. Filtrada do chaveamento pra não sobrar jogo que nunca acontece. */
+      impossible?: boolean;
+    }
   | { kind: "bye" };
 
 export type BracketSlot =
@@ -63,6 +72,7 @@ function groupQualifiers(
         label: `Vaga extra do Grupo ${group} (grupo tem só ${teamCount} ${teamCount === 1 ? "time" : "times"})`,
         rank,
         group,
+        impossible: true,
       });
       continue;
     }
@@ -72,6 +82,7 @@ function groupQualifiers(
         label: `Vaga do Grupo ${group} já classificada para a Série Ouro`,
         rank,
         group,
+        impossible: true,
       });
       continue;
     }
@@ -124,14 +135,17 @@ function seriesQualifiers(
 
   const seeded: QualifierSlot[] = [];
   for (let tier = 0; tier < spots; tier++) {
-    const tierSlots = perGroup.map((slots, groupIndex) => {
-      const slot = slots[tier]!;
-      const row =
-        slot.kind === "team"
-          ? standings[groupIndex]?.rows.find((r) => r.teamId === slot.teamId)
-          : undefined;
-      return { slot, row };
-    });
+    const tierSlots = perGroup
+      .map((slots, groupIndex) => {
+        const slot = slots[tier]!;
+        const row =
+          slot.kind === "team"
+            ? standings[groupIndex]?.rows.find((r) => r.teamId === slot.teamId)
+            : undefined;
+        return { slot, row };
+      })
+      // Vaga impossível não ocupa posição no chaveamento — senão vira jogo que nunca fecha.
+      .filter(({ slot }) => !(slot.kind === "placeholder" && slot.impossible));
     tierSlots.sort((a, b) => {
       if (!a.row && !b.row) return 0;
       if (!a.row) return 1;
