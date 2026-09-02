@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useEditions, useEvents, useMatches, useTeams } from "@/hooks/use-tournament";
 import { computeGroupStandings } from "@/lib/standings";
 import { cn } from "@/lib/utils";
+import { TeamCrest } from "@/components/TeamCrest";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -132,7 +133,12 @@ function StandingsPage() {
                       r.zone === "prata" && "bg-slate-400/10 hover:bg-slate-400/15",
                     )}
                   >
-                    <TableCell className="font-semibold">{r.name}</TableCell>
+                    <TableCell className="font-semibold">
+                      <div className="flex items-center gap-2">
+                        <TeamCrest logoUrl={r.logoUrl} name={r.name} />
+                        {r.name}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right font-bold tabular-nums text-primary">
                       {r.points}
                     </TableCell>

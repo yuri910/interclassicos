@@ -15,7 +15,9 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ClassificacaoRouteImport } from './routes/classificacao'
 import { Route as RankingsRouteImport } from './routes/rankings'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedContaRouteImport } from './routes/_authenticated/conta'
 import { Route as AuthenticatedEdicaoRouteImport } from './routes/_authenticated/edicao'
+import { Route as AuthenticatedMarketingRouteImport } from './routes/_authenticated/marketing'
 import { Route as AuthenticatedMesarioRouteImport } from './routes/_authenticated/mesario'
 import { Route as AuthenticatedSumulaMatchIdRouteImport } from './routes/_authenticated/sumula.$matchId'
 
@@ -48,9 +50,19 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedContaRoute = AuthenticatedContaRouteImport.update({
+  id: '/conta',
+  path: '/conta',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedEdicaoRoute = AuthenticatedEdicaoRouteImport.update({
   id: '/edicao',
   path: '/edicao',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedMarketingRoute = AuthenticatedMarketingRouteImport.update({
+  id: '/marketing',
+  path: '/marketing',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedMesarioRoute = AuthenticatedMesarioRouteImport.update({
@@ -71,7 +83,9 @@ export interface FileRoutesByFullPath {
   '/classificacao': typeof ClassificacaoRoute
   '/rankings': typeof RankingsRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/conta': typeof AuthenticatedContaRoute
   '/edicao': typeof AuthenticatedEdicaoRoute
+  '/marketing': typeof AuthenticatedMarketingRoute
   '/mesario': typeof AuthenticatedMesarioRoute
   '/sumula/$matchId': typeof AuthenticatedSumulaMatchIdRoute
 }
@@ -81,7 +95,9 @@ export interface FileRoutesByTo {
   '/classificacao': typeof ClassificacaoRoute
   '/rankings': typeof RankingsRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/conta': typeof AuthenticatedContaRoute
   '/edicao': typeof AuthenticatedEdicaoRoute
+  '/marketing': typeof AuthenticatedMarketingRoute
   '/mesario': typeof AuthenticatedMesarioRoute
   '/sumula/$matchId': typeof AuthenticatedSumulaMatchIdRoute
 }
@@ -93,7 +109,9 @@ export interface FileRoutesById {
   '/classificacao': typeof ClassificacaoRoute
   '/rankings': typeof RankingsRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/conta': typeof AuthenticatedContaRoute
   '/_authenticated/edicao': typeof AuthenticatedEdicaoRoute
+  '/_authenticated/marketing': typeof AuthenticatedMarketingRoute
   '/_authenticated/mesario': typeof AuthenticatedMesarioRoute
   '/_authenticated/sumula/$matchId': typeof AuthenticatedSumulaMatchIdRoute
 }
@@ -105,7 +123,9 @@ export interface FileRouteTypes {
     | '/classificacao'
     | '/rankings'
     | '/admin'
+    | '/conta'
     | '/edicao'
+    | '/marketing'
     | '/mesario'
     | '/sumula/$matchId'
   fileRoutesByTo: FileRoutesByTo
@@ -115,7 +135,9 @@ export interface FileRouteTypes {
     | '/classificacao'
     | '/rankings'
     | '/admin'
+    | '/conta'
     | '/edicao'
+    | '/marketing'
     | '/mesario'
     | '/sumula/$matchId'
   id:
@@ -126,7 +148,9 @@ export interface FileRouteTypes {
     | '/classificacao'
     | '/rankings'
     | '/_authenticated/admin'
+    | '/_authenticated/conta'
     | '/_authenticated/edicao'
+    | '/_authenticated/marketing'
     | '/_authenticated/mesario'
     | '/_authenticated/sumula/$matchId'
   fileRoutesById: FileRoutesById
@@ -183,11 +207,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/conta': {
+      id: '/_authenticated/conta'
+      path: '/conta'
+      fullPath: '/conta'
+      preLoaderRoute: typeof AuthenticatedContaRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/edicao': {
       id: '/_authenticated/edicao'
       path: '/edicao'
       fullPath: '/edicao'
       preLoaderRoute: typeof AuthenticatedEdicaoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/marketing': {
+      id: '/_authenticated/marketing'
+      path: '/marketing'
+      fullPath: '/marketing'
+      preLoaderRoute: typeof AuthenticatedMarketingRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/mesario': {
@@ -209,14 +247,18 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedContaRoute: typeof AuthenticatedContaRoute
   AuthenticatedEdicaoRoute: typeof AuthenticatedEdicaoRoute
+  AuthenticatedMarketingRoute: typeof AuthenticatedMarketingRoute
   AuthenticatedMesarioRoute: typeof AuthenticatedMesarioRoute
   AuthenticatedSumulaMatchIdRoute: typeof AuthenticatedSumulaMatchIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedContaRoute: AuthenticatedContaRoute,
   AuthenticatedEdicaoRoute: AuthenticatedEdicaoRoute,
+  AuthenticatedMarketingRoute: AuthenticatedMarketingRoute,
   AuthenticatedMesarioRoute: AuthenticatedMesarioRoute,
   AuthenticatedSumulaMatchIdRoute: AuthenticatedSumulaMatchIdRoute,
 }

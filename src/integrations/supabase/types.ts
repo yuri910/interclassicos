@@ -16,14 +16,19 @@ export type Database = {
     Tables: {
       editions: {
         Row: {
+          ad_banner_url: string | null
+          ad_enabled: boolean
+          ad_whatsapp_phone: string | null
           created_at: string
           foul_shootout_limit: number
           games_to_reset_yellows: number
           id: string
           is_active: boolean
+          logo_url: string | null
           name: string
           ouro_qualifiers: number
           prata_qualifiers: number
+          story_background_url: string | null
           suspension_games_red: number
           suspension_games_yellow: number
           team_count: number
@@ -32,14 +37,19 @@ export type Database = {
           yellows_for_suspension: number
         }
         Insert: {
+          ad_banner_url?: string | null
+          ad_enabled?: boolean
+          ad_whatsapp_phone?: string | null
           created_at?: string
           foul_shootout_limit?: number
           games_to_reset_yellows?: number
           id?: string
           is_active?: boolean
+          logo_url?: string | null
           name: string
           ouro_qualifiers?: number
           prata_qualifiers?: number
+          story_background_url?: string | null
           suspension_games_red?: number
           suspension_games_yellow?: number
           team_count?: number
@@ -48,14 +58,19 @@ export type Database = {
           yellows_for_suspension?: number
         }
         Update: {
+          ad_banner_url?: string | null
+          ad_enabled?: boolean
+          ad_whatsapp_phone?: string | null
           created_at?: string
           foul_shootout_limit?: number
           games_to_reset_yellows?: number
           id?: string
           is_active?: boolean
+          logo_url?: string | null
           name?: string
           ouro_qualifiers?: number
           prata_qualifiers?: number
+          story_background_url?: string | null
           suspension_games_red?: number
           suspension_games_yellow?: number
           team_count?: number
@@ -161,6 +176,73 @@ export type Database = {
             columns: ["team_id"]
             isOneToOne: false
             referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketing_stories: {
+        Row: {
+          created_at: string
+          id: string
+          image_path: string
+          match_id: string
+          story_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          image_path: string
+          match_id: string
+          story_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          image_path?: string
+          match_id?: string
+          story_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketing_stories_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketing_tasks: {
+        Row: {
+          created_at: string
+          id: string
+          match_id: string
+          photo_path: string | null
+          resolved_at: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          match_id: string
+          photo_path?: string | null
+          resolved_at?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          match_id?: string
+          photo_path?: string | null
+          resolved_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketing_tasks_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: true
+            referencedRelation: "matches"
             referencedColumns: ["id"]
           },
         ]
@@ -292,6 +374,44 @@ export type Database = {
         }
         Relationships: []
       }
+      sponsors: {
+        Row: {
+          created_at: string
+          edition_id: string | null
+          id: string
+          is_master: boolean
+          logo_url: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          edition_id?: string | null
+          id?: string
+          is_master?: boolean
+          logo_url: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          edition_id?: string | null
+          id?: string
+          is_master?: boolean
+          logo_url?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sponsors_edition_id_fkey"
+            columns: ["edition_id"]
+            isOneToOne: false
+            referencedRelation: "editions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       teams: {
         Row: {
           created_at: string
@@ -299,6 +419,7 @@ export type Database = {
           edition_id: string | null
           group_name: string | null
           id: string
+          logo_url: string | null
           name: string
         }
         Insert: {
@@ -307,6 +428,7 @@ export type Database = {
           edition_id?: string | null
           group_name?: string | null
           id?: string
+          logo_url?: string | null
           name: string
         }
         Update: {
@@ -315,6 +437,7 @@ export type Database = {
           edition_id?: string | null
           group_name?: string | null
           id?: string
+          logo_url?: string | null
           name?: string
         }
         Relationships: [

@@ -1,1 +1,6 @@
 project_id = "klkvyynlayffsncsmotg"
+
+[functions.admin-users]
+# A função valida o JWT do chamador (e o papel de admin) internamente, então não depende do
+# formato de chave da API no gateway.
+verify_jwt = false

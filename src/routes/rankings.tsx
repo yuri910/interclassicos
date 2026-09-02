@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useEvents, useMatches, usePlayers, useTeams } from "@/hooks/use-tournament";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TeamCrest } from "@/components/TeamCrest";
 import {
   Table,
   TableBody,
@@ -45,7 +46,13 @@ function RankingsPage() {
       .map(([playerId, total]) => {
         const player = (players ?? []).find((p) => p.id === playerId);
         const team = (teams ?? []).find((t) => t.id === player?.team_id);
-        return { playerId, name: player?.name ?? "—", team: team?.name ?? "—", total };
+        return {
+          playerId,
+          name: player?.name ?? "—",
+          team: team?.name ?? "—",
+          teamLogo: team?.logo_url ?? null,
+          total,
+        };
       })
       .sort((a, b) => b.total - a.total);
   }, [matches, players, teams]);
@@ -63,7 +70,13 @@ function RankingsPage() {
     return [...map.entries()].map(([playerId, stats]) => {
       const player = (players ?? []).find((p) => p.id === playerId);
       const team = (teams ?? []).find((t) => t.id === player?.team_id);
-      return { playerId, name: player?.name ?? "—", team: team?.name ?? "—", ...stats };
+      return {
+        playerId,
+        name: player?.name ?? "—",
+        team: team?.name ?? "—",
+        teamLogo: team?.logo_url ?? null,
+        ...stats,
+      };
     });
   }, [events, players, teams]);
 
@@ -101,7 +114,12 @@ function RankingsPage() {
                   <TableRow key={r.playerId}>
                     <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                     <TableCell className="font-semibold">{r.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{r.team}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <TeamCrest logoUrl={r.teamLogo} name={r.team} />
+                        {r.team}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right text-lg font-bold tabular-nums text-primary">
                       {r.gols}
                     </TableCell>
@@ -135,7 +153,12 @@ function RankingsPage() {
                 {cards.map((r) => (
                   <TableRow key={r.playerId}>
                     <TableCell className="font-semibold">{r.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{r.team}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <TeamCrest logoUrl={r.teamLogo} name={r.team} />
+                        {r.team}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right font-bold tabular-nums text-yellow-card">
                       {r.amarelos}
                     </TableCell>
@@ -173,7 +196,12 @@ function RankingsPage() {
                   <TableRow key={r.playerId}>
                     <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                     <TableCell className="font-semibold">{r.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{r.team}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <TeamCrest logoUrl={r.teamLogo} name={r.team} />
+                        {r.team}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right text-lg font-bold tabular-nums text-primary">
                       {r.total}
                     </TableCell>

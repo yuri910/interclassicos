@@ -39,7 +39,7 @@ function AuthPage() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/mesario", replace: true });
+      if (data.session) navigate({ to: "/conta", replace: true });
     });
   }, [navigate]);
 
@@ -50,6 +50,24 @@ function AuthPage() {
       return null;
     }
     return parsed.data;
+  };
+
+  const forgotPassword = async () => {
+    const parsed = z.string().trim().email({ message: "Informe um e-mail válido" }).safeParse(email);
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? "Informe um e-mail válido");
+      return;
+    }
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(parsed.data, {
+      redirectTo: `${window.location.origin}/conta`,
+    });
+    setLoading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Enviamos um e-mail com um link para você definir uma nova senha.");
   };
 
   const signIn = async () => {
@@ -65,7 +83,7 @@ function AuthPage() {
       toast.error(error.message);
       return;
     }
-    navigate({ to: "/mesario", replace: true });
+    navigate({ to: "/conta", replace: true });
   };
 
   const signUp = async () => {
@@ -85,11 +103,14 @@ function AuthPage() {
       toast.error(error.message);
       return;
     }
+    toast.success(
+      data.session
+        ? "Cadastro criado! Sua conta ainda precisa ser aprovada por um administrador antes de liberar o acesso."
+        : "Confira seu e-mail para confirmar o cadastro. Depois, sua conta ainda precisa ser aprovada por um administrador.",
+    );
     if (data.session) {
-      navigate({ to: "/mesario", replace: true });
-      return;
+      navigate({ to: "/conta", replace: true });
     }
-    toast.success("Confira seu e-mail para confirmar o cadastro.");
   };
 
   const signInGoogle = async () => {
@@ -101,7 +122,7 @@ function AuthPage() {
       return;
     }
     if (result.redirected) return;
-    navigate({ to: "/mesario", replace: true });
+    navigate({ to: "/conta", replace: true });
   };
 
   return (
@@ -139,6 +160,14 @@ function AuthPage() {
             <Button className="w-full" disabled={loading} onClick={signIn}>
               Entrar
             </Button>
+            <button
+              type="button"
+              className="block w-full text-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              onClick={forgotPassword}
+              disabled={loading}
+            >
+              Esqueci minha senha
+            </button>
           </TabsContent>
 
           <TabsContent value="signup" className="mt-5 space-y-4">

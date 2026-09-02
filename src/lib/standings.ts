@@ -3,6 +3,7 @@ import type { Match, MatchEvent, Team } from "@/hooks/use-tournament";
 export type StandingRow = {
   teamId: string;
   name: string;
+  logoUrl: string | null;
   j: number;
   v: number;
   e: number;
@@ -44,6 +45,7 @@ export function computeGroupStandings(params: {
     const row: MutableRow = {
       teamId: team.id,
       name: team.name,
+      logoUrl: team.logo_url,
       j: 0,
       v: 0,
       e: 0,

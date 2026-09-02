@@ -18,6 +18,7 @@ import {
   type Series,
 } from "@/lib/bracket";
 import { cn } from "@/lib/utils";
+import { TeamCrest } from "@/components/TeamCrest";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -185,6 +186,55 @@ function BracketByeCard({ matchup }: { matchup: BracketMatchup }) {
   );
 }
 
+/** Card compacto de um confronto decidido/agendado dentro do chaveamento — só o essencial
+ * (escudo, nome, placar), sem o cabeçalho de fase/horário/campo do card de lista de jogos. */
+function BracketMatchCard({ match, teams }: { match: Match; teams: Team[] }) {
+  const home = teams.find((t) => t.id === match.home_team_id);
+  const away = teams.find((t) => t.id === match.away_team_id);
+  const decided = match.status === "encerrada" && match.home_score !== match.away_score;
+  const homeWins = decided && match.home_score > match.away_score;
+  const awayWins = decided && match.away_score > match.home_score;
+  const played = match.status !== "agendada";
+
+  const row = (team: Team | undefined, score: number, won: boolean) => (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-md px-2 py-1.5",
+        won && "bg-primary/15",
+        decided && !won && "opacity-55",
+      )}
+    >
+      <TeamCrest logoUrl={team?.logo_url} name={team?.name ?? "?"} />
+      <span
+        className={cn(
+          "flex-1 truncate text-sm",
+          won ? "font-bold text-foreground" : "font-semibold",
+        )}
+      >
+        {team?.name ?? "A definir"}
+      </span>
+      <span
+        className={cn(
+          "text-sm tabular-nums",
+          won ? "font-bold text-primary" : "text-muted-foreground",
+        )}
+      >
+        {played ? score : ""}
+      </span>
+    </div>
+  );
+
+  return (
+    <article className="surface-card space-y-1 p-2 transition-colors hover:border-primary/50">
+      {row(home, match.home_score, homeWins)}
+      {row(away, match.away_score, awayWins)}
+      <p className="truncate px-2 pt-0.5 text-[11px] text-muted-foreground">
+        {formatKickoff(match.kickoff_at)}
+      </p>
+    </article>
+  );
+}
+
 type CardRect = { top: number; bottom: number; centerY: number; left: number; right: number };
 
 /** Compara com arredondamento — evita loop de re-render por jitter de subpixel. */
@@ -347,7 +397,7 @@ function SeriesBracket({
                     {m.home.kind === "bye" || m.away.kind === "bye" ? (
                       <BracketByeCard matchup={m} />
                     ) : m.match ? (
-                      <MatchCard match={m.match} teams={teams} />
+                      <BracketMatchCard match={m.match} teams={teams} />
                     ) : (
                       <BracketPlaceholderCard matchup={m} />
                     )}

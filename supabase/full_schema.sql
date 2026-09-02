@@ -233,3 +233,105 @@ ALTER TABLE public.editions
   ADD COLUMN IF NOT EXISTS team_count integer NOT NULL DEFAULT 14,
   ADD COLUMN IF NOT EXISTS ouro_qualifiers integer NOT NULL DEFAULT 4,
   ADD COLUMN IF NOT EXISTS prata_qualifiers integer NOT NULL DEFAULT 3;
+
+-- ===== 20260901120000: logos de time/torneio, pendências e artes de Marketing =====
+
+ALTER TABLE public.teams ADD COLUMN logo_url text;
+ALTER TABLE public.editions ADD COLUMN logo_url text;
+
+CREATE TABLE public.marketing_tasks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id uuid NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE UNIQUE,
+  status text NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','concluida')),
+  photo_path text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  resolved_at timestamptz
+);
+GRANT SELECT, INSERT, UPDATE ON public.marketing_tasks TO authenticated;
+GRANT ALL ON public.marketing_tasks TO service_role;
+ALTER TABLE public.marketing_tasks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "marketing_tasks staff all" ON public.marketing_tasks FOR ALL TO authenticated
+  USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
+
+CREATE TABLE public.marketing_stories (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id uuid NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE,
+  story_type text NOT NULL CHECK (story_type IN ('resultado','craque')),
+  image_path text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT, INSERT ON public.marketing_stories TO authenticated;
+GRANT SELECT ON public.marketing_stories TO anon;
+GRANT ALL ON public.marketing_stories TO service_role;
+ALTER TABLE public.marketing_stories ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "marketing_stories public read" ON public.marketing_stories FOR SELECT USING (true);
+CREATE POLICY "marketing_stories staff insert" ON public.marketing_stories FOR INSERT TO authenticated
+  WITH CHECK (public.is_staff(auth.uid()));
+
+INSERT INTO storage.buckets (id, name, public) VALUES ('team-logos', 'team-logos', true);
+CREATE POLICY "team-logos public read" ON storage.objects FOR SELECT
+  USING (bucket_id = 'team-logos');
+CREATE POLICY "team-logos admin write" ON storage.objects FOR ALL TO authenticated
+  USING (bucket_id = 'team-logos' AND public.has_role(auth.uid(),'admin'))
+  WITH CHECK (bucket_id = 'team-logos' AND public.has_role(auth.uid(),'admin'));
+
+INSERT INTO storage.buckets (id, name, public) VALUES ('marketing', 'marketing', true);
+CREATE POLICY "marketing public read" ON storage.objects FOR SELECT
+  USING (bucket_id = 'marketing');
+CREATE POLICY "marketing staff write" ON storage.objects FOR ALL TO authenticated
+  USING (bucket_id = 'marketing' AND public.is_staff(auth.uid()))
+  WITH CHECK (bucket_id = 'marketing' AND public.is_staff(auth.uid()));
+
+-- ===== 20260901180000: fundo das artes de Stories e patrocinadores =====
+
+ALTER TABLE public.editions ADD COLUMN story_background_url text;
+
+CREATE TABLE public.sponsors (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  edition_id uuid REFERENCES public.editions(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  logo_url text NOT NULL,
+  is_master boolean NOT NULL DEFAULT false,
+  sort_order int NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT ON public.sponsors TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sponsors TO authenticated;
+GRANT ALL ON public.sponsors TO service_role;
+ALTER TABLE public.sponsors ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "sponsors public read" ON public.sponsors FOR SELECT USING (true);
+CREATE POLICY "sponsors admin write" ON public.sponsors FOR ALL TO authenticated
+  USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
+
+-- ===== 20260901220000: banner de anúncio pago =====
+
+ALTER TABLE public.editions
+  ADD COLUMN ad_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN ad_banner_url text,
+  ADD COLUMN ad_whatsapp_phone text;
+
+-- ===== 20260902120000: aprovação manual de novas contas =====
+
+CREATE POLICY "user_roles admin write" ON public.user_roles FOR ALL TO authenticated
+  USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE has_admin boolean;
+BEGIN
+  INSERT INTO public.profiles (id, full_name)
+  VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE role = 'admin') INTO has_admin;
+
+  -- Sem nenhum admin cadastrado ainda: esta conta é a fundadora, vira admin+mesário direto.
+  -- Já existe admin: a conta fica sem papel nenhum até ser aprovada manualmente.
+  IF NOT has_admin THEN
+    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin') ON CONFLICT DO NOTHING;
+    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'mesario') ON CONFLICT DO NOTHING;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;

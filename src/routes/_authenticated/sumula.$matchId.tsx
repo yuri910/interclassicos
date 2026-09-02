@@ -13,6 +13,8 @@ import {
 } from "@/hooks/use-tournament";
 import { formatKickoff, matchGroupLabel, phaseLabel } from "@/lib/tournament";
 import { computeSuspensions } from "@/lib/suspensions";
+import { generateAndStoreMatchStory } from "@/lib/marketing";
+import { useSponsors } from "@/hooks/use-marketing";
 import { FoulsPanel } from "@/components/FoulsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +55,8 @@ function SumulaPage() {
   const { data: players } = usePlayers();
   const { data: events } = useEvents(matchId);
   const { data: allEvents } = useEvents();
-  const { rules } = useActiveRules();
+  const { rules, edition } = useActiveRules();
+  const { data: sponsors } = useSponsors();
 
   const match = matches?.find((m) => m.id === matchId);
   const [playerId, setPlayerId] = useState("");
@@ -210,6 +213,23 @@ function SumulaPage() {
           ? "Partida encerrada. Resultado contabilizado na classificação e nos rankings."
           : "Status atualizado.",
       );
+      if (status === "encerrada" && match) {
+        generateAndStoreMatchStory({
+          match,
+          teams: teams ?? [],
+          players: players ?? [],
+          events: events ?? [],
+          tournamentLogoUrl: edition?.logo_url,
+          backgroundUrl: edition?.story_background_url,
+          sponsors: sponsors ?? [],
+        })
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ["marketing_stories"] });
+            queryClient.invalidateQueries({ queryKey: ["marketing_tasks"] });
+            toast.success("Arte gerada! Confira na aba Marketing.");
+          })
+          .catch((e: Error) => toast.error(`Não foi possível gerar a arte: ${e.message}`));
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });

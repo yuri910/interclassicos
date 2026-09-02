@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Trophy, ClipboardList, Settings, LogOut, LogIn } from "lucide-react";
+import { CalendarDays, Trophy, ClipboardList, Settings, LogOut, LogIn, Megaphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ export function AppHeader() {
   const nav = [
     ...links,
     ...(isStaff ? [{ to: "/mesario", label: "Mesário", icon: ClipboardList }] : []),
+    ...(isStaff ? [{ to: "/marketing", label: "Marketing", icon: Megaphone }] : []),
     ...(isAdmin ? [{ to: "/edicao", label: "Edição", icon: Trophy }] : []),
   ];
 
@@ -56,11 +57,18 @@ export function AppHeader() {
           ))}
         </nav>
 
-        <div className="order-2 ml-auto sm:order-3">
+        <div className="order-2 ml-auto flex items-center gap-1 sm:order-3">
           {user ? (
-            <Button variant="ghost" size="sm" onClick={handleSignOut}>
-              <LogOut className="size-4" /> Sair
-            </Button>
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/conta">
+                  <Settings className="size-4" /> Minha conta
+                </Link>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                <LogOut className="size-4" /> Sair
+              </Button>
+            </>
           ) : (
             <Button asChild size="sm">
               <Link to="/auth">

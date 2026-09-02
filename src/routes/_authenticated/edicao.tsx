@@ -14,6 +14,8 @@ import {
 } from "@/hooks/use-tournament";
 import { formatDate } from "@/lib/tournament";
 import { computeGroupStandings } from "@/lib/standings";
+import { TeamCrest } from "@/components/TeamCrest";
+import { useSponsors } from "@/hooks/use-marketing";
 import { bracketMatchPlan } from "@/lib/bracket";
 import { createScheduler, parseClock, roundRobinRounds } from "@/lib/scheduling";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -373,6 +376,7 @@ function EdicaoPage() {
   const { data: players } = usePlayers();
   const { data: matches } = useMatches();
   const { data: events } = useEvents();
+  const { data: sponsors } = useSponsors();
 
   const [name, setName] = useState("");
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -392,6 +396,8 @@ function EdicaoPage() {
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [editingPlayerName, setEditingPlayerName] = useState("");
   const [editingPlayerShirt, setEditingPlayerShirt] = useState("");
+
+  const [adPhone, setAdPhone] = useState("");
 
   const [ruleValues, setRuleValues] = useState<Record<RuleKey, string>>({
     foul_shootout_limit: "6",
@@ -450,6 +456,7 @@ function EdicaoPage() {
       suspension_games_yellow: String(edition.suspension_games_yellow),
       suspension_games_red: String(edition.suspension_games_red),
     });
+    setAdPhone(edition.ad_whatsapp_phone ?? "");
     const storedFormat = readStoredFormat(edition.id);
     if (storedFormat) {
       setOuroSpots(storedFormat.ouroSpots);
@@ -500,6 +507,7 @@ function EdicaoPage() {
     qc.invalidateQueries({ queryKey: ["teams"] });
     qc.invalidateQueries({ queryKey: ["players"] });
     qc.invalidateQueries({ queryKey: ["matches"] });
+    qc.invalidateQueries({ queryKey: ["sponsors"] });
   };
 
   const saveFormatConfig = useMutation({
@@ -615,6 +623,11 @@ function EdicaoPage() {
         team_count: 14,
         ouro_qualifiers: 4,
         prata_qualifiers: 3,
+        logo_url: null,
+        story_background_url: null,
+        ad_enabled: false,
+        ad_banner_url: null,
+        ad_whatsapp_phone: null,
       };
       qc.setQueryData(["editions"], (previous: Edition[] | undefined) => {
         const next = [...(previous ?? [])];
@@ -779,6 +792,163 @@ function EdicaoPage() {
       invalidate();
       toast.success("Regras salvas.");
     },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateEditionLogo = useMutation({
+    mutationFn: async (file: File) => {
+      if (!selectedEditionId) throw new Error("Selecione a edição");
+      const ext = file.name.split(".").pop() || "png";
+      const path = `tournament-logo/${selectedEditionId}-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("marketing")
+        .upload(path, file, { contentType: file.type, upsert: true });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("marketing").getPublicUrl(path);
+      const { error } = await supabase
+        .from("editions")
+        .update({ logo_url: data.publicUrl })
+        .eq("id", selectedEditionId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("Logo do torneio atualizado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateEditionBackground = useMutation({
+    mutationFn: async (file: File) => {
+      if (!selectedEditionId) throw new Error("Selecione a edição");
+      const ext = file.name.split(".").pop() || "png";
+      const path = `story-background/${selectedEditionId}-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("marketing")
+        .upload(path, file, { contentType: file.type, upsert: true });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("marketing").getPublicUrl(path);
+      const { error } = await supabase
+        .from("editions")
+        .update({ story_background_url: data.publicUrl })
+        .eq("id", selectedEditionId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("Fundo das artes atualizado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const [sponsorName, setSponsorName] = useState("");
+
+  const addSponsor = useMutation({
+    mutationFn: async (file: File) => {
+      if (!selectedEditionId) throw new Error("Selecione a edição");
+      const trimmed = sponsorName.trim();
+      if (!trimmed) throw new Error("Informe o nome do patrocinador");
+      const ext = file.name.split(".").pop() || "png";
+      const path = `sponsors/${selectedEditionId}-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("marketing")
+        .upload(path, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("marketing").getPublicUrl(path);
+      const { error } = await supabase.from("sponsors").insert({
+        edition_id: selectedEditionId,
+        name: trimmed,
+        logo_url: data.publicUrl,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setSponsorName("");
+      invalidate();
+      toast.success("Patrocinador adicionado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteSponsor = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("sponsors").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("Patrocinador removido.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const setMasterSponsor = useMutation({
+    mutationFn: async (id: string) => {
+      if (!selectedEditionId) throw new Error("Selecione a edição");
+      const off = await supabase
+        .from("sponsors")
+        .update({ is_master: false })
+        .eq("edition_id", selectedEditionId);
+      if (off.error) throw off.error;
+      const { error } = await supabase.from("sponsors").update({ is_master: true }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("Patrocinador master definido.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateAdBanner = useMutation({
+    mutationFn: async (file: File) => {
+      if (!selectedEditionId) throw new Error("Selecione a edição");
+      const ext = file.name.split(".").pop() || "png";
+      const path = `ad-banner/${selectedEditionId}-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("marketing")
+        .upload(path, file, { contentType: file.type, upsert: true });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("marketing").getPublicUrl(path);
+      const { error } = await supabase
+        .from("editions")
+        .update({ ad_banner_url: data.publicUrl })
+        .eq("id", selectedEditionId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("Banner do anúncio atualizado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const saveAdSettings = useMutation({
+    mutationFn: async () => {
+      if (!selectedEditionId) throw new Error("Selecione a edição");
+      const { error } = await supabase
+        .from("editions")
+        .update({ ad_whatsapp_phone: adPhone.trim() || null })
+        .eq("id", selectedEditionId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("WhatsApp do anúncio salvo.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const toggleAdEnabled = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      if (!selectedEditionId) throw new Error("Selecione a edição");
+      const { error } = await supabase
+        .from("editions")
+        .update({ ad_enabled: enabled })
+        .eq("id", selectedEditionId);
+      if (error) throw error;
+    },
+    onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -1053,6 +1223,28 @@ function EdicaoPage() {
       setEditingTeamName("");
       invalidate();
       toast.success("Time atualizado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateTeamLogo = useMutation({
+    mutationFn: async ({ teamId, file }: { teamId: string; file: File }) => {
+      const ext = file.name.split(".").pop() || "png";
+      const path = `${teamId}-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("team-logos")
+        .upload(path, file, { contentType: file.type, upsert: true });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("team-logos").getPublicUrl(path);
+      const { error } = await supabase
+        .from("teams")
+        .update({ logo_url: data.publicUrl })
+        .eq("id", teamId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("Logo do time atualizado.");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -1404,6 +1596,25 @@ function EdicaoPage() {
                                           onChange={(e) => setEditingTeamName(e.target.value)}
                                         />
                                       </div>
+                                      <div className="space-y-1.5">
+                                        <Label htmlFor={`edit-team-logo-${team.id}`}>
+                                          Logo do time
+                                        </Label>
+                                        <div className="flex items-center gap-3">
+                                          <TeamCrest logoUrl={team.logo_url} name={team.name} size="lg" />
+                                          <Input
+                                            id={`edit-team-logo-${team.id}`}
+                                            type="file"
+                                            accept="image/*"
+                                            disabled={updateTeamLogo.isPending}
+                                            onChange={(e) => {
+                                              const file = e.target.files?.[0];
+                                              if (file) updateTeamLogo.mutate({ teamId: team.id, file });
+                                              e.target.value = "";
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
                                       <div className="flex gap-2">
                                         <Button
                                           size="sm"
@@ -1569,7 +1780,10 @@ function EdicaoPage() {
                                     </div>
                                   ) : (
                                     <div className="flex items-center justify-between gap-2">
-                                      <span className="text-sm">{team.name}</span>
+                                      <span className="flex items-center gap-2 text-sm">
+                                        <TeamCrest logoUrl={team.logo_url} name={team.name} />
+                                        {team.name}
+                                      </span>
                                       <div className="flex gap-1">
                                         <Button
                                           size="sm"
@@ -1635,6 +1849,197 @@ function EdicaoPage() {
                     >
                       Salvar regras
                     </Button>
+
+                    <div className="mt-6 border-t border-border/50 pt-4">
+                      <Label htmlFor="edition-logo">Logo do torneio</Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Usado nas artes automáticas geradas na aba Marketing.
+                      </p>
+                      <div className="mt-2 flex items-center gap-3">
+                        <TeamCrest
+                          logoUrl={selectedEdition?.logo_url}
+                          name={selectedEdition?.name ?? "?"}
+                          size="lg"
+                        />
+                        <Input
+                          id="edition-logo"
+                          type="file"
+                          accept="image/*"
+                          disabled={!selectedEditionId || updateEditionLogo.isPending}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) updateEditionLogo.mutate(file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-6 border-t border-border/50 pt-4">
+                      <Label htmlFor="edition-background">Fundo das artes (Stories)</Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Imagem de fundo usada nas artes de resultado e de craque da partida
+                        geradas na aba Marketing. Formato retrato (ex.: 1080×1920).
+                      </p>
+                      <div className="mt-2 flex items-center gap-3">
+                        {selectedEdition?.story_background_url ? (
+                          <img
+                            src={selectedEdition.story_background_url}
+                            alt="Fundo das artes"
+                            className="h-16 w-9 rounded-md object-cover"
+                          />
+                        ) : (
+                          <div className="h-16 w-9 rounded-md bg-secondary" />
+                        )}
+                        <Input
+                          id="edition-background"
+                          type="file"
+                          accept="image/*"
+                          disabled={!selectedEditionId || updateEditionBackground.isPending}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) updateEditionBackground.mutate(file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-6 border-t border-border/50 pt-4">
+                      <Label>Patrocinadores</Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Aparecem na barra inferior da arte do craque da partida. O patrocinador
+                        master aparece em destaque.
+                      </p>
+                      <ul className="mt-3 space-y-2">
+                        {(sponsors ?? [])
+                          .filter((s) => s.edition_id === selectedEditionId)
+                          .map((s) => (
+                            <li
+                              key={s.id}
+                              className="flex items-center justify-between gap-2 rounded-md bg-background px-3 py-2"
+                            >
+                              <span className="flex items-center gap-2 text-sm">
+                                <TeamCrest logoUrl={s.logo_url} name={s.name} />
+                                {s.name}
+                                {s.is_master && (
+                                  <Badge className="ml-1">Master</Badge>
+                                )}
+                              </span>
+                              <div className="flex gap-1">
+                                {!s.is_master && (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => setMasterSponsor.mutate(s.id)}
+                                    disabled={setMasterSponsor.isPending}
+                                  >
+                                    Definir master
+                                  </Button>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => deleteSponsor.mutate(s.id)}
+                                  disabled={deleteSponsor.isPending}
+                                >
+                                  Excluir
+                                </Button>
+                              </div>
+                            </li>
+                          ))}
+                        {(sponsors ?? []).filter((s) => s.edition_id === selectedEditionId)
+                          .length === 0 && (
+                          <p className="text-sm text-muted-foreground">
+                            Nenhum patrocinador cadastrado.
+                          </p>
+                        )}
+                      </ul>
+
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <Input
+                          placeholder="Nome do patrocinador"
+                          value={sponsorName}
+                          onChange={(e) => setSponsorName(e.target.value)}
+                        />
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          disabled={!selectedEditionId || addSponsor.isPending}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) addSponsor.mutate(file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-lg bg-secondary/40 p-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-stencil text-sm font-bold">Anúncio pago</h3>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="ad-enabled" className="text-xs text-muted-foreground">
+                          Ativo
+                        </Label>
+                        <Switch
+                          id="ad-enabled"
+                          checked={selectedEdition?.ad_enabled ?? false}
+                          disabled={!selectedEditionId || toggleAdEnabled.isPending}
+                          onCheckedChange={(checked) => toggleAdEnabled.mutate(checked)}
+                        />
+                      </div>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Mostrado uma única vez para visitantes que não são admin/mesário, com um
+                      link direto pro WhatsApp pedindo orçamento.
+                    </p>
+
+                    <div className="mt-4 space-y-1.5">
+                      <Label htmlFor="ad-banner">Banner do anúncio</Label>
+                      <div className="flex items-center gap-3">
+                        {selectedEdition?.ad_banner_url ? (
+                          <img
+                            src={selectedEdition.ad_banner_url}
+                            alt="Banner do anúncio"
+                            className="h-16 w-16 rounded-md object-cover"
+                          />
+                        ) : (
+                          <div className="h-16 w-16 rounded-md bg-background" />
+                        )}
+                        <Input
+                          id="ad-banner"
+                          type="file"
+                          accept="image/*"
+                          disabled={!selectedEditionId || updateAdBanner.isPending}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) updateAdBanner.mutate(file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+                      <div className="flex-1 space-y-1.5">
+                        <Label htmlFor="ad-phone">WhatsApp (com DDI e DDD)</Label>
+                        <Input
+                          id="ad-phone"
+                          placeholder="5548999999999"
+                          inputMode="numeric"
+                          value={adPhone}
+                          onChange={(e) => setAdPhone(e.target.value)}
+                        />
+                      </div>
+                      <Button
+                        onClick={() => saveAdSettings.mutate()}
+                        disabled={!selectedEditionId || saveAdSettings.isPending}
+                      >
+                        Salvar WhatsApp
+                      </Button>
+                    </div>
                   </section>
 
                   <section className="rounded-lg border border-primary/20 bg-primary/5 p-4">

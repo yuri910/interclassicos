@@ -7,6 +7,7 @@ export type Team = {
   group_name: string | null;
   edition_id: string | null;
   crest_emoji: string | null;
+  logo_url: string | null;
 };
 
 export type Player = {
@@ -53,6 +54,11 @@ export type Edition = {
   team_count: number;
   ouro_qualifiers: number;
   prata_qualifiers: number;
+  logo_url: string | null;
+  story_background_url: string | null;
+  ad_enabled: boolean;
+  ad_banner_url: string | null;
+  ad_whatsapp_phone: string | null;
 };
 
 export const DEFAULT_RULES = {
@@ -72,7 +78,7 @@ export function useEditions() {
       const { data, error } = await supabase
         .from("editions")
         .select(
-          "id, name, year, is_active, foul_shootout_limit, yellows_for_suspension, games_to_reset_yellows, suspension_games_yellow, suspension_games_red, team_count, ouro_qualifiers, prata_qualifiers",
+          "id, name, year, is_active, foul_shootout_limit, yellows_for_suspension, games_to_reset_yellows, suspension_games_yellow, suspension_games_red, team_count, ouro_qualifiers, prata_qualifiers, logo_url, story_background_url, ad_enabled, ad_banner_url, ad_whatsapp_phone",
         )
         .order("year", { ascending: false })
         .order("name", { ascending: true });
@@ -107,7 +113,7 @@ export function useTeams() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("teams")
-        .select("id, name, group_name, edition_id, crest_emoji")
+        .select("id, name, group_name, edition_id, crest_emoji, logo_url")
         .order("group_name", { ascending: true })
         .order("name", { ascending: true });
       if (error) throw error;
