@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { ArrowLeft, Check, Pencil, Star, Trash2, TriangleAlert, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Check, Lock, Pencil, Star, Trash2, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -11,6 +11,8 @@ import {
   usePlayers,
   useTeams,
 } from "@/hooks/use-tournament";
+import { useAuth } from "@/hooks/use-auth";
+import { acquireMatchLock, heartbeatMatchLock, releaseMatchLock } from "@/hooks/use-match-lock";
 import { formatKickoff, matchGroupLabel, phaseLabel } from "@/lib/tournament";
 import { computeSuspensions } from "@/lib/suspensions";
 import { generateAndStoreMatchStory } from "@/lib/marketing";
@@ -57,6 +59,38 @@ function SumulaPage() {
   const { data: allEvents } = useEvents();
   const { rules, edition } = useActiveRules();
   const { data: sponsors } = useSponsors();
+  const { user } = useAuth();
+
+  // Trava a súmula pro mesário atual assim que a página abre — se outro mesário já estiver
+  // com essa partida aberta (trava viva, não abandonada), bloqueia o acesso. Libera a trava
+  // ao sair da página e renova ela periodicamente enquanto estiver aqui preenchendo.
+  const [lockState, setLockState] = useState<"checking" | "granted" | "blocked">("checking");
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setLockState("checking");
+    acquireMatchLock(matchId, user.id)
+      .then((result) => {
+        if (!cancelled) setLockState(result.ok ? "granted" : "blocked");
+      })
+      .catch(() => {
+        // Falha ao checar a trava não deve impedir o mesário de trabalhar.
+        if (!cancelled) setLockState("granted");
+      });
+    return () => {
+      cancelled = true;
+      void releaseMatchLock(matchId, user.id);
+    };
+  }, [matchId, user?.id]);
+
+  useEffect(() => {
+    if (lockState !== "granted" || !user) return;
+    const interval = setInterval(() => {
+      void heartbeatMatchLock(matchId, user.id);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [lockState, matchId, user?.id]);
 
   const match = matches?.find((m) => m.id === matchId);
   const [playerId, setPlayerId] = useState("");
@@ -234,10 +268,26 @@ function SumulaPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (!match) {
+  if (!match || lockState === "checking") {
     return (
       <main className="mx-auto max-w-3xl px-4 py-10 text-muted-foreground">
         Carregando partida...
+      </main>
+    );
+  }
+
+  if (lockState === "blocked") {
+    return (
+      <main className="mx-auto max-w-md px-4 py-16 text-center">
+        <Lock className="mx-auto size-10 text-muted-foreground" />
+        <h1 className="text-stencil mt-4 text-2xl font-bold">Súmula em uso</h1>
+        <p className="mt-2 text-muted-foreground">
+          Este jogo já possui um mesário preenchendo a súmula agora. Aguarde um pouco e tente
+          novamente.
+        </p>
+        <Button asChild className="mt-6">
+          <Link to="/mesario">Voltar</Link>
+        </Button>
       </main>
     );
   }

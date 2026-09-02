@@ -180,6 +180,32 @@ export type Database = {
           },
         ]
       }
+      match_locks: {
+        Row: {
+          locked_at: string
+          match_id: string
+          user_id: string
+        }
+        Insert: {
+          locked_at?: string
+          match_id: string
+          user_id: string
+        }
+        Update: {
+          locked_at?: string
+          match_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_locks_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: true
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketing_stories: {
         Row: {
           created_at: string

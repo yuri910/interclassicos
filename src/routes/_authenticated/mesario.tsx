@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { ClipboardList, Trash2 } from "lucide-react";
+import { ClipboardList, Lock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useEditions, useEvents, useMatches, useTeams } from "@/hooks/use-tournament";
+import { useAuth } from "@/hooks/use-auth";
+import { isLockedByOther, useMatchLocks } from "@/hooks/use-match-lock";
 import { formatKickoff, matchGroupLabel, phaseLabel, statusLabel } from "@/lib/tournament";
 import { computeGroupStandings } from "@/lib/standings";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +35,8 @@ function MesarioPage() {
   const { data: teams } = useTeams();
   const { data: editions } = useEditions();
   const { data: events } = useEvents();
+  const { data: locks } = useMatchLocks();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const deleteMatch = useMutation({
@@ -184,6 +188,11 @@ function MesarioPage() {
                     <span>{formatKickoff(m.kickoff_at)}</span>
                     <span>· {m.field}</span>
                     <span>· {statusLabel(m.status)}</span>
+                    {isLockedByOther(locks, m.id, user?.id) && (
+                      <Badge variant="destructive" className="gap-1">
+                        <Lock className="size-3" /> Em uso
+                      </Badge>
+                    )}
                   </div>
                   {matchGroupLabel(m) && (
                     <p className="mt-0.5 text-xs font-semibold text-primary">
