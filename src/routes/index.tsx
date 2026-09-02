@@ -315,6 +315,7 @@ function SeriesBracket({
   matches,
   teams,
   editionId,
+  ouroSpots,
 }: {
   series: Series;
   standings: GroupStandings[];
@@ -322,8 +323,9 @@ function SeriesBracket({
   matches: Match[];
   teams: Team[];
   editionId: string | null;
+  ouroSpots?: number;
 }) {
-  const bracket = buildSeriesBracket({ series, standings, spots, matches, editionId });
+  const bracket = buildSeriesBracket({ series, standings, spots, matches, editionId, ouroSpots });
   const { containerRef, registerCard, rects } = useBracketConnectors();
 
   if (!bracket || bracket.rounds.length === 0) {
@@ -444,6 +446,7 @@ function PlayoffBracket({
         matches={matches}
         teams={teams}
         editionId={editionId}
+        ouroSpots={ouroSpots}
       />
     </div>
   );
