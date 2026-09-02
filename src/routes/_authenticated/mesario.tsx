@@ -87,13 +87,11 @@ function MesarioPage() {
       events: events ?? [],
     });
     const ouroSpots = activeEdition.ouro_qualifiers ?? 4;
-    const prataSpots = activeEdition.prata_qualifiers ?? 3;
     const allComplete = standings.length > 0 && standings.every((entry) => entry.complete);
 
     return {
       groups: standings,
       ouroSpots,
-      prataSpots,
       allComplete,
     };
   }, [activeEdition, teams, matches, events]);
@@ -153,14 +151,11 @@ function MesarioPage() {
                         Série Prata
                       </p>
                       <ul className="mt-1 space-y-1 text-sm">
-                        {entry.rows
-                          .slice(-playoffSummary.prataSpots)
-                          .reverse()
-                          .map((row) => (
-                            <li key={row.teamId} className="text-foreground">
-                              • {row.name}
-                            </li>
-                          ))}
+                        {entry.rows.slice(playoffSummary.ouroSpots).map((row) => (
+                          <li key={row.teamId} className="text-foreground">
+                            • {row.name}
+                          </li>
+                        ))}
                       </ul>
                     </div>
                   </div>

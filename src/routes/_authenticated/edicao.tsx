@@ -1110,14 +1110,11 @@ function EdicaoPage() {
         throw new Error("Encerre todos os jogos da fase de grupos antes de gerar os playoffs");
       }
       const gold = Number(ouroSpots);
-      const silver = Number(prataSpots);
       if (!Number.isInteger(gold) || gold < 1)
         throw new Error("Quantidade para Série Ouro inválida");
-      if (!Number.isInteger(silver) || silver < 1)
-        throw new Error("Quantidade para Série Prata inválida");
-      // Ouro + Prata podem ultrapassar o tamanho do grupo (ex.: grupo pequeno com muitas
-      // vagas configuradas) — os times do meio da tabela simplesmente disputam as duas
-      // séries. Os playoffs são gerados normalmente com os times realmente classificados.
+      // A Ouro pega sempre o topo de cada grupo (`gold` times); a Prata pega sempre o resto —
+      // todo mundo que não entrou na Ouro, nunca um número fixo à parte. Isso garante que
+      // nenhum time repita entre as duas séries nem sobre vaga sem time real.
 
       // Plano do chaveamento inteiro (quartas, semi e final das duas séries — sem disputa
       // de 3º lugar), considerando os resultados já lançados. Cada clique sincroniza: cria
@@ -1126,7 +1123,6 @@ function EdicaoPage() {
       const plan = bracketMatchPlan({
         standings: groupStandings,
         ouroSpots: gold,
-        prataSpots: silver,
         matches: editionMatches,
         editionId: selectedEditionId,
       });
@@ -2064,7 +2060,8 @@ function EdicaoPage() {
                       <div className="rounded-md bg-background/70 p-3">
                         <p className="font-semibold text-foreground">Série Prata</p>
                         <p className="mt-1">
-                          Os {prataSpots} últimos colocados seguem para a disputa da Série Prata.
+                          Todos os times que não avançaram para a Ouro disputam a Série Prata —
+                          sem número fixo à parte, então ninguém repete disputa nem fica de fora.
                         </p>
                       </div>
                     </div>

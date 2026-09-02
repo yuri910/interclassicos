@@ -6,16 +6,7 @@ export type Series = "Ouro" | "Prata";
 
 export type QualifierSlot =
   | { kind: "team"; teamId: string; name: string; rank: number; group: string }
-  | {
-      kind: "placeholder";
-      label: string;
-      rank: number;
-      group: string;
-      /** Vaga que nunca vai virar time real (grupo pequeno demais, ou vaga já classificada
-       * pra outra série) — diferente de uma vaga "pendente" (grupo ainda não fechou), que
-       * ainda pode resolver. Filtrada do chaveamento pra não sobrar jogo que nunca acontece. */
-      impossible?: boolean;
-    }
+  | { kind: "placeholder"; label: string; rank: number; group: string }
   | { kind: "bye" };
 
 export type BracketSlot =
@@ -42,51 +33,25 @@ export type SeriesBracketData = {
 };
 
 /**
- * Vagas de um grupo para a série (Ouro = melhores colocados, Prata =
- * últimos colocados). Sempre retorna `spots` posições, mesmo com o grupo
- * incompleto — nesse caso a vaga vira um placeholder pela posição
- * ("Vaga 2º Lugar do Grupo A") em vez do time.
- *
- * `spots` pode ultrapassar o tamanho do grupo (configuração de Ouro + Prata
- * maior que o grupo comporta) — quem já classificou para a Série Ouro não
- * pode também disputar a Prata, então `excludeTopRanks` (só usado calculando
- * a Prata) corta as posições já reservadas pela Ouro: essas vagas viram
- * placeholder em vez de reaproveitar o time. As posições que não existem de
- * fato (rank fora de [1, teamCount]) também viram um placeholder informativo.
+ * Vagas de um grupo para a série, a partir de `startRank` (1 pra Ouro — sempre o topo do
+ * grupo; `ouroSpots + 1` pra Prata — o restante do grupo, ou seja, todo mundo que não
+ * classificou pra Ouro). Pede `count` vagas a partir daí; se o grupo não tem gente suficiente
+ * pra cobrir todas (`rank > teamCount`), essa vaga simplesmente não existe — não vira uma
+ * posição "morta" no chaveamento. Times ainda não decididos (grupo não fechou a fase de
+ * grupos) viram um placeholder pela posição, que ainda pode resolver depois.
  */
 function groupQualifiers(
   standing: GroupStandings | undefined,
   group: string,
-  spots: number,
-  fromBottom: boolean,
-  excludeTopRanks: number,
+  startRank: number,
+  count: number,
 ): QualifierSlot[] {
   const teamCount = standing?.rows.length ?? 0;
   const out: QualifierSlot[] = [];
-  for (let i = 0; i < spots; i++) {
-    const rankIndex = fromBottom ? teamCount - spots + i : i;
-    const rank = rankIndex + 1;
-    if (rank < 1 || rank > teamCount) {
-      out.push({
-        kind: "placeholder",
-        label: `Vaga extra do Grupo ${group} (grupo tem só ${teamCount} ${teamCount === 1 ? "time" : "times"})`,
-        rank,
-        group,
-        impossible: true,
-      });
-      continue;
-    }
-    if (fromBottom && rank <= excludeTopRanks) {
-      out.push({
-        kind: "placeholder",
-        label: `Vaga do Grupo ${group} já classificada para a Série Ouro`,
-        rank,
-        group,
-        impossible: true,
-      });
-      continue;
-    }
-    const row = standing?.complete ? standing.rows[rankIndex] : undefined;
+  for (let i = 0; i < count; i++) {
+    const rank = startRank + i;
+    if (rank < 1 || rank > teamCount) continue;
+    const row = standing?.complete ? standing.rows[rank - 1] : undefined;
     if (row) {
       out.push({ kind: "team", teamId: row.teamId, name: row.name, rank, group });
     } else {
@@ -111,41 +76,45 @@ function nextPowerOfTwo(n: number): number {
  * Vagas da série somando todos os grupos — não só A e B. Times de todos os
  * grupos configurados na edição disputam a mesma Série Ouro/Prata.
  *
- * Seed geral por classificação: os classificados de todos os grupos entram
- * numa lista só, primeiro por posição (todos os 1º lugares antes de todos
- * os 2º lugares, já que grupos podem ter tamanhos/adversários diferentes e
- * pontuação não é diretamente comparável entre eles) e, dentro da mesma
- * posição, por força real (pontos, saldo, gols pró) como desempate.
+ * `perGroupCount[i]` é quantas vagas pedir do grupo `i` a partir de `startRank` — pra Ouro é
+ * sempre o mesmo número em todo grupo; pra Prata varia (é "o resto do grupo depois da Ouro",
+ * que muda se os grupos não tiverem o mesmo tamanho). Cada grupo contribui o quanto puder;
+ * grupo menor simplesmente entra com menos gente, sem sobrar vaga órfã.
  *
- * A quantidade de classificados raramente fecha numa potência de 2 (ex.: 3
- * grupos × 2 vagas = 6 times) — a lista é completada com "folgas" (byes) até
- * a próxima potência de 2, que caem sobre os melhores seeds (ficam no fim da
- * lista, e o cruzamento sempre pareia o melhor com o pior). Isso garante que
- * o chaveamento sempre feche numa árvore limpa (quartas→semi→final).
+ * Seed geral por classificação: os classificados de todos os grupos entram numa lista só,
+ * primeiro por posição (todos os 1º lugares [dentro da série] antes de todos os 2º lugares,
+ * já que grupos podem ter tamanhos/adversários diferentes e pontuação não é diretamente
+ * comparável entre eles) e, dentro da mesma posição, por força real (pontos, saldo, gols pró)
+ * como desempate.
+ *
+ * A quantidade de classificados raramente fecha numa potência de 2 — a lista é completada com
+ * "folgas" (byes) até a próxima potência de 2, que caem sobre os melhores seeds (ficam no fim
+ * da lista, e o cruzamento sempre pareia o melhor com o pior). Isso garante que o chaveamento
+ * sempre feche numa árvore limpa (quartas→semi→final).
  */
 function seriesQualifiers(
   standings: GroupStandings[],
-  spots: number,
-  fromBottom: boolean,
-  excludeTopRanks: number,
+  startRank: number,
+  perGroupCount: number[],
 ): QualifierSlot[] {
-  const perGroup = standings.map((standing) =>
-    groupQualifiers(standing, standing.group, spots, fromBottom, excludeTopRanks),
+  const perGroup = standings.map((standing, i) =>
+    groupQualifiers(standing, standing.group, startRank, perGroupCount[i] ?? 0),
   );
+  const maxTiers = Math.max(0, ...perGroup.map((slots) => slots.length));
 
   const seeded: QualifierSlot[] = [];
-  for (let tier = 0; tier < spots; tier++) {
+  for (let tier = 0; tier < maxTiers; tier++) {
     const tierSlots = perGroup
       .map((slots, groupIndex) => {
-        const slot = slots[tier]!;
+        const slot = slots[tier];
+        if (!slot) return null;
         const row =
           slot.kind === "team"
             ? standings[groupIndex]?.rows.find((r) => r.teamId === slot.teamId)
             : undefined;
         return { slot, row };
       })
-      // Vaga impossível não ocupa posição no chaveamento — senão vira jogo que nunca fecha.
-      .filter(({ slot }) => !(slot.kind === "placeholder" && slot.impossible));
+      .filter((entry): entry is { slot: QualifierSlot; row: GroupStandings["rows"][number] | undefined } => entry !== null);
     tierSlots.sort((a, b) => {
       if (!a.row && !b.row) return 0;
       if (!a.row) return 1;
@@ -257,18 +226,28 @@ function phasesForRounds(totalRounds: number): BracketRound["phase"][] {
 export function buildSeriesBracket(params: {
   series: Series;
   standings: GroupStandings[];
+  /** Vagas de Ouro por grupo. Pra série "Ouro" isso é o próprio topo pedido; pra série
+   * "Prata" ela nunca usa um número fixo — é sempre "o resto do grupo" (todo mundo que não
+   * entrou na Ouro), então esse valor só serve aqui pra saber onde a Ouro corta. */
   spots: number;
   matches: Match[];
   editionId: string | null;
-  /** Vagas da Ouro (topo de cada grupo) que a Prata não pode reaproveitar. Só importa
-   * quando `series` é "Prata" — quem já classificou pra Ouro não disputa a Prata também. */
-  ouroSpots?: number | undefined;
 }): SeriesBracketData | null {
-  const { series, standings, spots, matches, editionId, ouroSpots = 0 } = params;
+  const { series, standings, spots, matches, editionId } = params;
   if (spots < 1 || standings.length < 2) return null;
 
-  const fromBottom = series === "Prata";
-  const qualifiers = seriesQualifiers(standings, spots, fromBottom, fromBottom ? ouroSpots : 0);
+  const qualifiers =
+    series === "Ouro"
+      ? seriesQualifiers(
+          standings,
+          1,
+          standings.map(() => spots),
+        )
+      : seriesQualifiers(
+          standings,
+          spots + 1,
+          standings.map((s) => Math.max(0, s.rows.length - spots)),
+        );
   if (qualifiers.length < 2) return null;
 
   let slots = seededCrossPairs(qualifiers).flatMap(([a, b]) => [
@@ -308,6 +287,10 @@ export type BracketPlanEntry = {
  * é um confronto novo, liberado pelos resultados já lançados, que ainda
  * precisa virar uma partida para o mesário.
  *
+ * A Ouro pega sempre o topo de cada grupo (`ouroSpots` times); a Prata pega sempre o resto —
+ * todo mundo que não entrou na Ouro, nunca um número fixo à parte (evita vaga sem time real ou
+ * time repetido nas duas séries).
+ *
  * Usado por "Gerar/Atualizar playoffs" para sincronizar o banco com o
  * chaveamento inteiro a cada clique, em vez de só a primeira rodada — assim,
  * conforme os jogos vão sendo encerrados pelo mesário, um novo clique já
@@ -316,18 +299,13 @@ export type BracketPlanEntry = {
 export function bracketMatchPlan(params: {
   standings: GroupStandings[];
   ouroSpots: number;
-  prataSpots: number;
   matches: Match[];
   editionId: string | null;
 }): BracketPlanEntry[] {
-  const { standings, ouroSpots, prataSpots, matches, editionId } = params;
+  const { standings, ouroSpots, matches, editionId } = params;
   const plan: BracketPlanEntry[] = [];
-  const seriesSpots: Array<[Series, number]> = [
-    ["Ouro", ouroSpots],
-    ["Prata", prataSpots],
-  ];
-  for (const [series, spots] of seriesSpots) {
-    const data = buildSeriesBracket({ series, standings, spots, matches, editionId, ouroSpots });
+  for (const series of ["Ouro", "Prata"] as const) {
+    const data = buildSeriesBracket({ series, standings, spots: ouroSpots, matches, editionId });
     if (!data) continue;
     for (const round of data.rounds) {
       for (const matchup of round.matchups) {

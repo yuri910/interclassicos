@@ -315,17 +315,17 @@ function SeriesBracket({
   matches,
   teams,
   editionId,
-  ouroSpots,
 }: {
   series: Series;
   standings: GroupStandings[];
+  /** Vagas da Série Ouro (topo de cada grupo) — inclusive quando `series` é "Prata", já que
+   * ela é sempre "o resto do grupo" a partir desse corte, nunca um número separado. */
   spots: number;
   matches: Match[];
   teams: Team[];
   editionId: string | null;
-  ouroSpots?: number;
 }) {
-  const bracket = buildSeriesBracket({ series, standings, spots, matches, editionId, ouroSpots });
+  const bracket = buildSeriesBracket({ series, standings, spots, matches, editionId });
   const { containerRef, registerCard, rects } = useBracketConnectors();
 
   if (!bracket || bracket.rounds.length === 0) {
@@ -417,14 +417,12 @@ function SeriesBracket({
 function PlayoffBracket({
   standings,
   ouroSpots,
-  prataSpots,
   matches,
   teams,
   editionId,
 }: {
   standings: GroupStandings[];
   ouroSpots: number;
-  prataSpots: number;
   matches: Match[];
   teams: Team[];
   editionId: string | null;
@@ -442,11 +440,10 @@ function PlayoffBracket({
       <SeriesBracket
         series="Prata"
         standings={standings}
-        spots={prataSpots}
+        spots={ouroSpots}
         matches={matches}
         teams={teams}
         editionId={editionId}
-        ouroSpots={ouroSpots}
       />
     </div>
   );
@@ -472,7 +469,6 @@ function MatchesPage() {
     events: events ?? [],
   });
   const ouroSpots = activeEdition?.ouro_qualifiers ?? 4;
-  const prataSpots = activeEdition?.prata_qualifiers ?? 3;
 
   const upcoming = editionMatches
     .filter((m) => m.status !== "encerrada")
@@ -530,7 +526,6 @@ function MatchesPage() {
               <PlayoffBracket
                 standings={groupStandings}
                 ouroSpots={ouroSpots}
-                prataSpots={prataSpots}
                 matches={editionMatches}
                 teams={teams ?? []}
                 editionId={activeEdition?.id ?? null}
