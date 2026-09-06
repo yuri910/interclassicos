@@ -28,6 +28,11 @@ function priorGames(matches: Match[], teamId: string, before: string) {
     .sort((a, b) => new Date(a.kickoff_at).getTime() - new Date(b.kickoff_at).getTime());
 }
 
+/** Fase de grupos é um "bloco"; qualquer fase de mata-mata (oitavas/quartas/semi/final) é outro. */
+function stageBucket(phase: string) {
+  return phase === "grupos" ? "grupos" : "mata-mata";
+}
+
 /**
  * Calcula quais atletas dos dois times estão suspensos para a partida informada,
  * considerando as regras da edição (vermelhos e acúmulo de amarelos).
@@ -46,19 +51,23 @@ export function computeSuspensions(params: {
   for (const teamId of teamIds) {
     const games = priorGames(matches, teamId, match.kickoff_at);
     if (games.length === 0) continue;
+    // Amarelo zera ao entrar no mata-mata: só conta os jogos anteriores dentro do mesmo bloco
+    // (fase de grupos ou mata-mata) da partida atual — cartão acumulado nos grupos não segue
+    // pro mata-mata, a contagem recomeça do zero conforme as regras do torneio.
+    const yellowGames = games.filter((g) => stageBucket(g.phase) === stageBucket(match.phase));
     const squad = players.filter((p) => p.team_id === teamId);
 
     for (const player of squad) {
-      const perGame = games.map((g) => {
-        const evs = events.filter((e) => e.match_id === g.id && e.player_id === player.id);
-        return {
-          yellows: evs.filter((e) => e.type === "amarelo").length,
-          red: evs.some((e) => e.type === "vermelho"),
-        };
-      });
+      const redPerGame = games.map((g) =>
+        events.some((e) => e.match_id === g.id && e.player_id === player.id && e.type === "vermelho"),
+      );
+      const perYellowGame = yellowGames.map((g) => ({
+        yellows: events.filter((e) => e.match_id === g.id && e.player_id === player.id && e.type === "amarelo")
+          .length,
+      }));
 
-      // Vermelho: suspenso pelos N jogos seguintes.
-      const lastRed = perGame.map((g, i) => (g.red ? i : -1)).filter((i) => i >= 0).pop();
+      // Vermelho: suspenso pelos N jogos seguintes (vale mesmo trocando de fase).
+      const lastRed = redPerGame.map((red, i) => (red ? i : -1)).filter((i) => i >= 0).pop();
       if (lastRed !== undefined && games.length - 1 - lastRed < rules.suspension_games_red) {
         out.push({
           playerId: player.id,
@@ -69,10 +78,10 @@ export function computeSuspensions(params: {
         continue;
       }
 
-      // Amarelos: acúmulo com reinício opcional da contagem.
+      // Amarelos: acúmulo com reinício opcional da contagem, sempre dentro do bloco atual.
       let counter = 0;
       let trigger = -1;
-      perGame.forEach((g, i) => {
+      perYellowGame.forEach((g, i) => {
         if (
           rules.games_to_reset_yellows > 0 &&
           i > 0 &&
@@ -87,7 +96,7 @@ export function computeSuspensions(params: {
           counter = 0;
         }
       });
-      if (trigger >= 0 && games.length - 1 - trigger < rules.suspension_games_yellow) {
+      if (trigger >= 0 && yellowGames.length - 1 - trigger < rules.suspension_games_yellow) {
         out.push({
           playerId: player.id,
           playerName: player.name,
