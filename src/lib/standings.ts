@@ -12,6 +12,9 @@ export type StandingRow = {
   gc: number;
   points: number;
   sg: number;
+  /** Cartões somados na fase de grupos — usados só como critério de desempate (quanto mais, pior). */
+  yellow: number;
+  red: number;
 };
 
 export type GroupStandings = {
@@ -54,6 +57,8 @@ export function computeGroupStandings(params: {
       gc: 0,
       points: 0,
       sg: 0,
+      yellow: 0,
+      red: 0,
     };
     rowsById.set(team.id, row);
     const list = byGroup.get(g) ?? [];
@@ -63,14 +68,27 @@ export function computeGroupStandings(params: {
   }
 
   const goals = new Map<string, { home: number; away: number }>();
+  const cards = new Map<string, { homeYellow: number; homeRed: number; awayYellow: number; awayRed: number }>();
   for (const ev of events) {
-    if (ev.type !== "gol") continue;
     const m = matches.find((x) => x.id === ev.match_id);
     if (!m) continue;
-    const cur = goals.get(m.id) ?? { home: 0, away: 0 };
-    if (ev.team_id === m.home_team_id) cur.home += 1;
-    else if (ev.team_id === m.away_team_id) cur.away += 1;
-    goals.set(m.id, cur);
+    if (ev.type === "gol") {
+      const cur = goals.get(m.id) ?? { home: 0, away: 0 };
+      if (ev.team_id === m.home_team_id) cur.home += 1;
+      else if (ev.team_id === m.away_team_id) cur.away += 1;
+      goals.set(m.id, cur);
+    } else if (ev.type === "amarelo" || ev.type === "vermelho") {
+      const cur = cards.get(m.id) ?? { homeYellow: 0, homeRed: 0, awayYellow: 0, awayRed: 0 };
+      const isHome = ev.team_id === m.home_team_id;
+      if (ev.type === "amarelo") {
+        if (isHome) cur.homeYellow += 1;
+        else cur.awayYellow += 1;
+      } else {
+        if (isHome) cur.homeRed += 1;
+        else cur.awayRed += 1;
+      }
+      cards.set(m.id, cur);
+    }
   }
 
   const finishedCountByGroup = new Map<string, number>();
@@ -91,6 +109,14 @@ export function computeGroupStandings(params: {
     const scored = goals.get(m.id);
     const hs = Math.max(scored?.home ?? 0, m.home_score);
     const as = Math.max(scored?.away ?? 0, m.away_score);
+
+    const cardCount = cards.get(m.id);
+    if (cardCount) {
+      home.yellow += cardCount.homeYellow;
+      home.red += cardCount.homeRed;
+      away.yellow += cardCount.awayYellow;
+      away.red += cardCount.awayRed;
+    }
 
     home.j += 1;
     away.j += 1;
@@ -118,8 +144,18 @@ export function computeGroupStandings(params: {
   return [...byGroup.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([group, rows]) => {
+      // Critérios de desempate, em ordem: pontos, vitórias, saldo de gols, gols pró, cartões
+      // vermelhos (menos é melhor), cartões amarelos (menos é melhor), nome (só pra garantir
+      // uma ordem estável quando empata em tudo).
       const sorted = [...rows].sort(
-        (a, b) => b.points - a.points || b.sg - a.sg || b.gp - a.gp || a.name.localeCompare(b.name),
+        (a, b) =>
+          b.points - a.points ||
+          b.v - a.v ||
+          b.sg - a.sg ||
+          b.gp - a.gp ||
+          a.red - b.red ||
+          a.yellow - b.yellow ||
+          a.name.localeCompare(b.name),
       );
       const teamCount = teamCountByGroup.get(group) ?? 0;
       const expected = teamCount > 1 ? (teamCount * (teamCount - 1)) / 2 : 0;

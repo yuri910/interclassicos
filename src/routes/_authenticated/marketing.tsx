@@ -1,14 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Camera, Check, Download, RotateCcw } from "lucide-react";
+import { Camera, Check, Download, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import { useActiveRules, useMatches, usePlayers, useTeams } from "@/hooks/use-tournament";
 import {
   useMarketingStories,
   useMarketingTasks,
   useSponsors,
   marketingPublicUrl,
+  type MarketingStory,
 } from "@/hooks/use-marketing";
 import { generateAndStoreMvpStory } from "@/lib/marketing";
 import { TeamCrest } from "@/components/TeamCrest";
@@ -86,6 +88,27 @@ function MarketingPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const deleteStory = useMutation({
+    mutationFn: async (story: MarketingStory) => {
+      const { error: storageError } = await supabase.storage
+        .from("marketing")
+        .remove([story.image_path]);
+      if (storageError) console.error(storageError);
+      const { error } = await supabase.from("marketing_stories").delete().eq("id", story.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marketing_stories"] });
+      toast.success("Arte excluída.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const handleDeleteStory = (story: MarketingStory) => {
+    if (!window.confirm("Excluir esta arte? Essa ação não pode ser desfeita.")) return;
+    deleteStory.mutate(story);
+  };
 
   const openCamera = (taskId: string) => {
     activeTaskId.current = taskId;
@@ -198,15 +221,26 @@ function MarketingPage() {
                       </p>
                     )}
                   </div>
-                  <a
-                    href={url}
-                    download
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
-                  >
-                    <Download className="size-4" /> Baixar
-                  </a>
+                  <div className="flex items-center gap-1">
+                    <a
+                      href={url}
+                      download
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
+                    >
+                      <Download className="size-4" /> Baixar
+                    </a>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label="Excluir arte"
+                      disabled={deleteStory.isPending}
+                      onClick={() => handleDeleteStory(story)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             );

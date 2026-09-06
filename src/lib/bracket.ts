@@ -88,9 +88,10 @@ function nextPowerOfTwo(n: number): number {
  * como desempate.
  *
  * A quantidade de classificados raramente fecha numa potência de 2 — a lista é completada com
- * "folgas" (byes) até a próxima potência de 2, que caem sobre os melhores seeds (ficam no fim
- * da lista, e o cruzamento sempre pareia o melhor com o pior). Isso garante que o chaveamento
- * sempre feche numa árvore limpa (quartas→semi→final).
+ * "folgas" (byes) até a próxima potência de 2, sempre no fim da lista (piores seeds). Quem
+ * monta a árvore de fato é `bracketSeedOrder`, que usa essa lista ordenada (melhor pro pior)
+ * pra garantir que os melhores seeds só se cruzam avançando de fase — e que as folgas caem
+ * sempre sobre os melhores classificados.
  */
 function seriesQualifiers(
   standings: GroupStandings[],
@@ -119,10 +120,15 @@ function seriesQualifiers(
       if (!a.row && !b.row) return 0;
       if (!a.row) return 1;
       if (!b.row) return -1;
+      // Mesmos critérios de desempate da classificação: pontos, vitórias, saldo, gols pró,
+      // cartões vermelhos e amarelos (quanto mais, pior), nome como último recurso.
       return (
         b.row.points - a.row.points ||
+        b.row.v - a.row.v ||
         b.row.sg - a.row.sg ||
         b.row.gp - a.row.gp ||
+        a.row.red - b.row.red ||
+        a.row.yellow - b.row.yellow ||
         a.row.name.localeCompare(b.row.name)
       );
     });
@@ -135,14 +141,25 @@ function seriesQualifiers(
   return seeded;
 }
 
-/** Cruza a lista de classificados: melhor seed geral contra pior, e assim por diante. */
-function seededCrossPairs<T>(list: T[]): Array<[T, T]> {
-  const pairs: Array<[T, T]> = [];
-  const half = Math.floor(list.length / 2);
-  for (let i = 0; i < half; i++) {
-    pairs.push([list[i]!, list[list.length - 1 - i]!]);
+/**
+ * Ordem oficial de chaveamento (seeding) pra `n` posições (potência de 2): os melhores seeds só
+ * se cruzam avançando de fase — o 1º e o 2º geral só podem se encontrar na final, o 3º só
+ * encontra um dos dois na semifinal na pior das hipóteses, e assim por diante. É a mesma lógica
+ * usada em chaveamentos oficiais de torneio (ex.: 8 posições vira [1,8,4,5,2,7,3,6]).
+ *
+ * Como as folgas (byes) sempre ocupam os últimos números (piores seeds — ver `seriesQualifiers`),
+ * essa ordem também garante que elas caem sempre sobre os melhores classificados: quem tem a
+ * campanha melhor é sempre priorizado pra passar de bye em vez de jogar logo de cara.
+ */
+function bracketSeedOrder(n: number): number[] {
+  let order = [1];
+  while (order.length < n) {
+    const size = order.length * 2;
+    const next: number[] = [];
+    for (const seed of order) next.push(seed, size + 1 - seed);
+    order = next;
   }
-  return pairs;
+  return order;
 }
 
 function slotFromQualifier(q: QualifierSlot): BracketSlot {
@@ -250,10 +267,9 @@ export function buildSeriesBracket(params: {
         );
   if (qualifiers.length < 2) return null;
 
-  let slots = seededCrossPairs(qualifiers).flatMap(([a, b]) => [
-    slotFromQualifier(a),
-    slotFromQualifier(b),
-  ]);
+  let slots = bracketSeedOrder(qualifiers.length).map((seedNumber) =>
+    slotFromQualifier(qualifiers[seedNumber - 1]!),
+  );
 
   const totalRounds = Math.round(Math.log2(slots.length));
   const phases = phasesForRounds(totalRounds);

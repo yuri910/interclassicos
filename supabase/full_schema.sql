@@ -354,3 +354,8 @@ CREATE POLICY "match_locks staff update" ON public.match_locks FOR UPDATE TO aut
   USING (public.is_staff(auth.uid())) WITH CHECK (public.is_staff(auth.uid()));
 CREATE POLICY "match_locks staff delete" ON public.match_locks FOR DELETE TO authenticated
   USING (public.is_staff(auth.uid()));
+
+-- ===== 20260902220000: permite excluir artes de marketing =====
+
+CREATE POLICY "marketing_stories staff delete" ON public.marketing_stories FOR DELETE TO authenticated
+  USING (public.is_staff(auth.uid()));
