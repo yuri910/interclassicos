@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MapPin, Clock } from "lucide-react";
 import {
   useEditions,
@@ -22,6 +22,30 @@ import { TeamCrest } from "@/components/TeamCrest";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const TEAM_FILTER_ALL = "__todos__";
+const TEAM_FILTER_STORAGE_KEY = "partidas-team-filter";
+
+function readStoredTeamFilter(): string {
+  if (typeof window === "undefined") return TEAM_FILTER_ALL;
+  try {
+    return window.localStorage.getItem(TEAM_FILTER_STORAGE_KEY) || TEAM_FILTER_ALL;
+  } catch {
+    return TEAM_FILTER_ALL;
+  }
+}
+
+function saveStoredTeamFilter(teamId: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TEAM_FILTER_STORAGE_KEY, teamId);
+}
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -454,6 +478,16 @@ function MatchesPage() {
   const { data: teams } = useTeams();
   const { data: editions } = useEditions();
   const { data: events } = useEvents();
+  const [teamFilter, setTeamFilter] = useState(TEAM_FILTER_ALL);
+
+  useEffect(() => {
+    setTeamFilter(readStoredTeamFilter());
+  }, []);
+
+  const handleTeamFilterChange = (value: string) => {
+    setTeamFilter(value);
+    saveStoredTeamFilter(value);
+  };
 
   const activeEdition = (editions ?? []).find((e) => e.is_active) ?? editions?.[0] ?? null;
   // Só mostra a edição em uso — evita misturar jogos/chaveamento de edições diferentes.
@@ -470,10 +504,24 @@ function MatchesPage() {
   });
   const ouroSpots = activeEdition?.ouro_qualifiers ?? 4;
 
-  const upcoming = editionMatches
+  // Se o time filtrado não existir mais nesta edição (trocou de edição, por exemplo),
+  // volta pra "Todos" em vez de deixar a lista vazia sem explicação.
+  const teamFilterValid =
+    teamFilter === TEAM_FILTER_ALL || editionTeams.some((t) => t.id === teamFilter);
+  const effectiveTeamFilter = teamFilterValid ? teamFilter : TEAM_FILTER_ALL;
+  const matchesForFilter =
+    effectiveTeamFilter === TEAM_FILTER_ALL
+      ? editionMatches
+      : editionMatches.filter(
+          (m) => m.home_team_id === effectiveTeamFilter || m.away_team_id === effectiveTeamFilter,
+        );
+
+  const sortedTeams = [...editionTeams].sort((a, b) => a.name.localeCompare(b.name));
+
+  const upcoming = matchesForFilter
     .filter((m) => m.status !== "encerrada")
     .sort((a, b) => a.kickoff_at.localeCompare(b.kickoff_at));
-  const finished = editionMatches
+  const finished = matchesForFilter
     .filter((m) => m.status === "encerrada")
     .sort((a, b) => b.kickoff_at.localeCompare(a.kickoff_at));
 
@@ -503,6 +551,24 @@ function MatchesPage() {
 
         {!isLoading && editionMatches.length > 0 && (
           <Tabs defaultValue="upcoming">
+            <div className="mb-4 space-y-1.5">
+              <label htmlFor="team-filter" className="text-sm font-medium text-muted-foreground">
+                Filtrar por time
+              </label>
+              <Select value={effectiveTeamFilter} onValueChange={handleTeamFilterChange}>
+                <SelectTrigger id="team-filter" className="max-w-xs">
+                  <SelectValue placeholder="Todos os times" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={TEAM_FILTER_ALL}>Todos os times</SelectItem>
+                  {sortedTeams.map((team) => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <TabsList>
               <TabsTrigger value="upcoming">Próximos jogos</TabsTrigger>
               <TabsTrigger value="finished">Jogos encerrados</TabsTrigger>
@@ -512,14 +578,22 @@ function MatchesPage() {
               <MatchGroups
                 matches={upcoming}
                 teams={teams ?? []}
-                emptyMessage="Nenhum jogo agendado no momento."
+                emptyMessage={
+                  effectiveTeamFilter === TEAM_FILTER_ALL
+                    ? "Nenhum jogo agendado no momento."
+                    : "Nenhum jogo agendado para esse time no momento."
+                }
               />
             </TabsContent>
             <TabsContent value="finished" className="mt-6">
               <MatchGroups
                 matches={finished}
                 teams={teams ?? []}
-                emptyMessage="Nenhum jogo encerrado ainda."
+                emptyMessage={
+                  effectiveTeamFilter === TEAM_FILTER_ALL
+                    ? "Nenhum jogo encerrado ainda."
+                    : "Nenhum jogo encerrado ainda para esse time."
+                }
               />
             </TabsContent>
             <TabsContent value="playoffs" className="mt-6">
