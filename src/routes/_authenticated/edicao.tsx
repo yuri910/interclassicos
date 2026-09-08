@@ -17,7 +17,12 @@ import { computeGroupStandings } from "@/lib/standings";
 import { TeamCrest } from "@/components/TeamCrest";
 import { useSponsors } from "@/hooks/use-marketing";
 import { bracketMatchPlan } from "@/lib/bracket";
-import { createScheduler, parseClock, roundRobinRounds } from "@/lib/scheduling";
+import {
+  buildRevezamentoGroupSchedule,
+  createScheduler,
+  parseClock,
+  roundRobinRounds,
+} from "@/lib/scheduling";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -263,6 +268,49 @@ function saveStoredDrawPairs(editionId: string, pairs: DrawPair[]) {
   window.localStorage.setItem(getDrawPairsStorageKey(editionId), JSON.stringify(pairs));
 }
 
+type RevezamentoConfig = {
+  satDate: string;
+  satStart: string;
+  satEnd: string;
+  lunchStart: string;
+  lunchEnd: string;
+  sunDate: string;
+  sunStart: string;
+  sunEnd: string;
+};
+
+const DEFAULT_REVEZAMENTO_CONFIG: RevezamentoConfig = {
+  satDate: "",
+  satStart: "10:00",
+  satEnd: "20:00",
+  lunchStart: "12:00",
+  lunchEnd: "13:00",
+  sunDate: "",
+  sunStart: "10:40",
+  sunEnd: "12:40",
+};
+
+function getRevezamentoStorageKey(editionId: string) {
+  return `edition-revezamento:${editionId}`;
+}
+
+function readStoredRevezamento(editionId: string): RevezamentoConfig {
+  if (typeof window === "undefined") return DEFAULT_REVEZAMENTO_CONFIG;
+  try {
+    const raw = window.localStorage.getItem(getRevezamentoStorageKey(editionId));
+    if (!raw) return DEFAULT_REVEZAMENTO_CONFIG;
+    const parsed = JSON.parse(raw) as Partial<RevezamentoConfig>;
+    return { ...DEFAULT_REVEZAMENTO_CONFIG, ...parsed };
+  } catch {
+    return DEFAULT_REVEZAMENTO_CONFIG;
+  }
+}
+
+function saveStoredRevezamento(editionId: string, config: RevezamentoConfig) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(getRevezamentoStorageKey(editionId), JSON.stringify(config));
+}
+
 function getPageStateStorageKey() {
   return "edicao-page-state";
 }
@@ -436,6 +484,7 @@ function EdicaoPage() {
   const [groupCount, setGroupCount] = useState("2");
   const [drawPair1, setDrawPair1] = useState<DrawPair>({ teamA: "", teamB: "" });
   const [drawPair2, setDrawPair2] = useState<DrawPair>({ teamA: "", teamB: "" });
+  const [revConfig, setRevConfig] = useState<RevezamentoConfig>(DEFAULT_REVEZAMENTO_CONFIG);
   const [ouroSpots, setOuroSpots] = useState("4");
   const [prataSpots, setPrataSpots] = useState("3");
   const [eventDates, setEventDates] = useState<string[]>([]);
@@ -497,6 +546,7 @@ function EdicaoPage() {
     const storedPairs = readStoredDrawPairs(edition.id);
     setDrawPair1(storedPairs[0] ?? { teamA: "", teamB: "" });
     setDrawPair2(storedPairs[1] ?? { teamA: "", teamB: "" });
+    setRevConfig(readStoredRevezamento(edition.id));
     const storedSchedule = readStoredSchedule(edition.id);
     if (storedSchedule) {
       setEventDates(storedSchedule.eventDates);
@@ -1162,6 +1212,118 @@ function EdicaoPage() {
     onSuccess: (count) => {
       invalidate();
       toast.success(`Sorteio realizado: ${count} jogos da fase de grupos gerados.`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const reorganizeRevezamento = useMutation({
+    mutationFn: async () => {
+      if (!selectedEditionId) throw new Error("Selecione a edição do campeonato");
+
+      const grouped = new Map<string, string[]>();
+      for (const team of editionTeams) {
+        if (!team.group_name) continue;
+        const list = grouped.get(team.group_name) ?? [];
+        list.push(team.id);
+        grouped.set(team.group_name, list);
+      }
+      const buckets = [...grouped.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([group, teamIds]) => ({ group, teamIds }));
+      if (buckets.length === 0) {
+        throw new Error("Nenhum time com grupo definido nesta edição — faça o sorteio primeiro");
+      }
+
+      const fieldList = fields
+        .split(",")
+        .map((field) => field.trim())
+        .filter(Boolean);
+      if (fieldList.length === 0) throw new Error("Informe ao menos um campo");
+      if (fieldList.length < buckets.length) {
+        throw new Error(
+          `É preciso pelo menos ${buckets.length} campo(s) — um por grupo — para revezar os grupos entre os campos`,
+        );
+      }
+
+      const step = Number(intervalMin);
+      if (!Number.isInteger(step) || step < 10 || step > 480)
+        throw new Error("Intervalo entre jogos inválido");
+
+      if (!revConfig.satDate.trim()) throw new Error("Informe a data de sábado");
+      if (!revConfig.sunDate.trim()) throw new Error("Informe a data de domingo");
+      const satStart = parseClock(revConfig.satStart, "Início de sábado");
+      const satEnd = parseClock(revConfig.satEnd, "Fim de sábado");
+      const lunchStart = parseClock(revConfig.lunchStart, "Início do almoço");
+      const lunchEnd = parseClock(revConfig.lunchEnd, "Fim do almoço");
+      const sunStart = parseClock(revConfig.sunStart, "Início de domingo");
+      const sunEnd = parseClock(revConfig.sunEnd, "Fim de domingo");
+      if (satEnd <= satStart) throw new Error("O fim de sábado deve ser depois do início");
+      if (lunchEnd <= lunchStart) throw new Error("O fim do almoço deve ser depois do início");
+      if (sunEnd <= sunStart) throw new Error("O fim de domingo deve ser depois do início");
+
+      // Só é seguro apagar e recriar os jogos da fase de grupos se nenhum deles
+      // já começou, encerrou ou tem lançamento na súmula.
+      const existing = (matches ?? []).filter(
+        (match) => match.edition_id === selectedEditionId && match.phase === "grupos",
+      );
+      if (existing.some((match) => match.status !== "agendada")) {
+        throw new Error(
+          "Já existem jogos da fase de grupos em andamento ou encerrados — não é seguro reorganizar automaticamente",
+        );
+      }
+      const existingHasEvents = existing.some((match) =>
+        (events ?? []).some((event) => event.match_id === match.id),
+      );
+      if (existingHasEvents) {
+        throw new Error(
+          "Já existem lançamentos na súmula de jogos da fase de grupos — não é seguro reorganizar automaticamente",
+        );
+      }
+
+      const scheduled = buildRevezamentoGroupSchedule({
+        buckets,
+        fields: fieldList,
+        stepMinutes: step,
+        saturday: {
+          date: revConfig.satDate,
+          dayStartMinutes: satStart,
+          dayEndMinutes: satEnd,
+          blockedWindows: [{ start: lunchStart, end: lunchEnd }],
+        },
+        sunday: {
+          date: revConfig.sunDate,
+          dayStartMinutes: sunStart,
+          dayEndMinutes: sunEnd,
+          blockedWindows: [],
+        },
+      });
+
+      const existingIds = existing.map((match) => match.id);
+      if (existingIds.length > 0) {
+        const { error: delError } = await supabase.from("matches").delete().in("id", existingIds);
+        if (delError) throw delError;
+      }
+
+      const rows = scheduled.map((m) => ({
+        phase: "grupos" as const,
+        group_name: m.group,
+        kickoff_at: m.kickoff.toISOString(),
+        field: m.field,
+        home_team_id: m.home,
+        away_team_id: m.away,
+        edition_id: selectedEditionId,
+      }));
+      const { error } = await supabase.from("matches").insert(rows);
+      if (error) throw error;
+
+      saveStoredRevezamento(selectedEditionId, revConfig);
+      return rows.length;
+    },
+    onSuccess: (count) => {
+      invalidate();
+      toast.success(
+        `Jogos reorganizados: ${count} partidas da fase de grupos redistribuídas entre sábado e domingo.`,
+      );
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -2470,6 +2632,127 @@ function EdicaoPage() {
                         ))}
                       </div>
                     )}
+                  </div>
+                </section>
+
+                <section className="surface-card p-5 mt-6">
+                  <h2 className="text-stencil text-lg font-bold">
+                    Reorganizar jogos com revezamento (sábado e domingo)
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Redistribui os jogos da fase de grupos já sorteada em dois dias fixos, com os
+                    grupos revezando os campos a cada horário (jogos de 30 em 30 min, por
+                    exemplo). Garante que todo time jogue pelo menos 1 vez no domingo. Os grupos
+                    não são alterados — só a data/horário/campo de cada jogo. Só funciona se
+                    nenhum jogo da fase de grupos já tiver começado, encerrado ou tiver
+                    lançamento na súmula.
+                  </p>
+                  <div className="mt-5 space-y-4">
+                    <div className="rounded-lg bg-secondary/40 p-4">
+                      <h3 className="text-stencil text-sm font-bold">Sábado</h3>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rev-sat-date">Data</Label>
+                          <DateFieldBR
+                            id="rev-sat-date"
+                            value={revConfig.satDate}
+                            onChange={(iso) => setRevConfig({ ...revConfig, satDate: iso })}
+                          />
+                        </div>
+                        <div />
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rev-sat-start">Início</Label>
+                          <TimeField24
+                            id="rev-sat-start"
+                            value={revConfig.satStart}
+                            onChange={(value) => setRevConfig({ ...revConfig, satStart: value })}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rev-sat-end">Fim</Label>
+                          <TimeField24
+                            id="rev-sat-end"
+                            value={revConfig.satEnd}
+                            onChange={(value) => setRevConfig({ ...revConfig, satEnd: value })}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rev-lunch-start">Início do almoço</Label>
+                          <TimeField24
+                            id="rev-lunch-start"
+                            value={revConfig.lunchStart}
+                            onChange={(value) =>
+                              setRevConfig({ ...revConfig, lunchStart: value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rev-lunch-end">Fim do almoço</Label>
+                          <TimeField24
+                            id="rev-lunch-end"
+                            value={revConfig.lunchEnd}
+                            onChange={(value) => setRevConfig({ ...revConfig, lunchEnd: value })}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg bg-secondary/40 p-4">
+                      <h3 className="text-stencil text-sm font-bold">Domingo</h3>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rev-sun-date">Data</Label>
+                          <DateFieldBR
+                            id="rev-sun-date"
+                            value={revConfig.sunDate}
+                            onChange={(iso) => setRevConfig({ ...revConfig, sunDate: iso })}
+                          />
+                        </div>
+                        <div />
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rev-sun-start">Início</Label>
+                          <TimeField24
+                            id="rev-sun-start"
+                            value={revConfig.sunStart}
+                            onChange={(value) => setRevConfig({ ...revConfig, sunStart: value })}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rev-sun-end">
+                            Fim (antes dos playoffs começarem)
+                          </Label>
+                          <TimeField24
+                            id="rev-sun-end"
+                            value={revConfig.sunEnd}
+                            onChange={(value) => setRevConfig({ ...revConfig, sunEnd: value })}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Usa o intervalo entre jogos ({intervalMin} min) e os campos ({fields})
+                      configurados no sorteio acima — é preciso 1 campo por grupo.
+                    </p>
+
+                    <Button
+                      className="w-full"
+                      variant="secondary"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "Isso vai apagar e recriar todos os jogos da fase de grupos com os novos horários. Continuar?",
+                          )
+                        ) {
+                          reorganizeRevezamento.mutate();
+                        }
+                      }}
+                      disabled={reorganizeRevezamento.isPending}
+                    >
+                      {reorganizeRevezamento.isPending
+                        ? "Reorganizando..."
+                        : "Reorganizar jogos (mantendo os grupos)"}
+                    </Button>
                   </div>
                 </section>
               </TabsContent>

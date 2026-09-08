@@ -142,6 +142,126 @@ export function createScheduler(config: SchedulerConfig) {
  * praticamente igual. Com número ímpar de times, um time fica de folga por
  * rodada (padrão em qualquer turno único com número ímpar de participantes).
  */
+export type RevezamentoDayWindow = {
+  date: string;
+  dayStartMinutes: number;
+  dayEndMinutes: number;
+  blockedWindows: Array<{ start: number; end: number }>;
+};
+
+export type RevezamentoMatch = {
+  group: string;
+  home: string;
+  away: string;
+  kickoff: Date;
+  field: string;
+};
+
+/**
+ * Agenda a fase de grupos em dois dias fixos (sábado/domingo), com os grupos
+ * revezando os campos: em cada horário, cada grupo joga em um campo diferente
+ * e a dupla campo↔grupo se inverte a cada horário seguinte (revezamento).
+ * Cada grupo consome sua própria lista de confrontos (turno único, método do
+ * círculo) em ordem — o que mantém o descanso entre jogos de um mesmo time o
+ * mais parecido possível. Uma pequena parte final dos confrontos de cada
+ * grupo (o suficiente para que todo time tenha pelo menos 1 jogo) é reservada
+ * para o domingo, garantindo que ninguém fique de fora do dia 2 mesmo que já
+ * tenha cumprido todos os seus jogos no sábado.
+ */
+export function buildRevezamentoGroupSchedule(params: {
+  buckets: Array<{ group: string; teamIds: string[] }>;
+  fields: string[];
+  stepMinutes: number;
+  saturday: RevezamentoDayWindow;
+  sunday: RevezamentoDayWindow;
+}): RevezamentoMatch[] {
+  const { buckets, fields, stepMinutes, saturday, sunday } = params;
+  if (buckets.length === 0) return [];
+  if (fields.length < buckets.length) {
+    throw new Error(
+      `São necessários ao menos ${buckets.length} campo(s) — um por grupo — para revezar os grupos entre os campos`,
+    );
+  }
+
+  const perGroup = buckets.map((bucket) => {
+    const matches = roundRobinRounds(bucket.teamIds).flat();
+    // Reserva, de trás pra frente, o menor conjunto final de confrontos que
+    // cobre todos os times do grupo — geralmente uns poucos jogos — para o
+    // domingo; o resto (a maior parte) fica pro sábado.
+    const covered = new Set<string>();
+    const sundayIdx = new Set<number>();
+    for (let i = matches.length - 1; i >= 0 && covered.size < bucket.teamIds.length; i--) {
+      const [home, away] = matches[i]!;
+      if (!covered.has(home) || !covered.has(away)) {
+        sundayIdx.add(i);
+        covered.add(home);
+        covered.add(away);
+      }
+    }
+    return {
+      group: bucket.group,
+      saturdayQueue: matches.filter((_, idx) => !sundayIdx.has(idx)),
+      sundayQueue: matches.filter((_, idx) => sundayIdx.has(idx)),
+    };
+  });
+
+  const runDay = (
+    day: RevezamentoDayWindow,
+    queues: Array<Array<[string, string]>>,
+  ): RevezamentoMatch[] => {
+    const out: RevezamentoMatch[] = [];
+    const cursors = queues.map(() => 0);
+
+    const skipBlocked = (date: Date): Date => {
+      let current = date;
+      for (;;) {
+        const minutesOfDay = current.getHours() * 60 + current.getMinutes();
+        const blocking = day.blockedWindows.find(
+          (w) => minutesOfDay >= w.start && minutesOfDay < w.end,
+        );
+        if (!blocking) return current;
+        current = new Date(current);
+        current.setHours(Math.floor(blocking.end / 60), blocking.end % 60, 0, 0);
+      }
+    };
+
+    const dayStart = new Date(`${day.date}T00:00:00`);
+    dayStart.setHours(Math.floor(day.dayStartMinutes / 60), day.dayStartMinutes % 60, 0, 0);
+    let current = skipBlocked(dayStart);
+    let t = 0;
+
+    while (cursors.some((c, gi) => c < queues[gi]!.length)) {
+      const dayEnd = new Date(current);
+      dayEnd.setHours(Math.floor(day.dayEndMinutes / 60), day.dayEndMinutes % 60, 0, 0);
+      if (current > dayEnd) {
+        throw new Error(
+          `Não há horário suficiente em ${day.date} para encaixar todos os jogos com o intervalo/campos configurados — ajuste o período do dia, o almoço ou o intervalo entre jogos.`,
+        );
+      }
+      for (let gi = 0; gi < perGroup.length; gi++) {
+        if (cursors[gi]! >= queues[gi]!.length) continue;
+        const field = fields[(gi + t) % fields.length]!;
+        const [home, away] = queues[gi]![cursors[gi]!]!;
+        out.push({ group: perGroup[gi]!.group, home, away, kickoff: new Date(current), field });
+        cursors[gi] = cursors[gi]! + 1;
+      }
+      t += 1;
+      current = skipBlocked(new Date(current.getTime() + stepMinutes * 60000));
+    }
+    return out;
+  };
+
+  const saturdayMatches = runDay(
+    saturday,
+    perGroup.map((p) => p.saturdayQueue),
+  );
+  const sundayMatches = runDay(
+    sunday,
+    perGroup.map((p) => p.sundayQueue),
+  );
+  return [...saturdayMatches, ...sundayMatches];
+}
+
 export function roundRobinRounds<T>(items: T[]): Array<Array<[T, T]>> {
   const BYE = Symbol("bye");
   const rotating: Array<T | typeof BYE> = [...items];
