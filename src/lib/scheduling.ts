@@ -163,10 +163,13 @@ export type RevezamentoMatch = {
  * e a dupla campo↔grupo se inverte a cada horário seguinte (revezamento).
  * Cada grupo consome sua própria lista de confrontos (turno único, método do
  * círculo) em ordem — o que mantém o descanso entre jogos de um mesmo time o
- * mais parecido possível. Uma pequena parte final dos confrontos de cada
- * grupo (o suficiente para que todo time tenha pelo menos 1 jogo) é reservada
- * para o domingo, garantindo que ninguém fique de fora do dia 2 mesmo que já
- * tenha cumprido todos os seus jogos no sábado.
+ * mais parecido possível. A última rodada do turno único de cada grupo (só
+ * ela) é reservada para o domingo: como numa rodada nenhum time se repete,
+ * isso garante que ninguém jogue duas vezes no domingo. Com número par de
+ * times na rodada, todo mundo joga; com número ímpar, o time que ficaria de
+ * folga nessa rodada (regra padrão de turno único ímpar) fica sem jogo nesse
+ * dia — não tem como evitar isso sem repetir alguém, já que não dá pra
+ * dividir um número ímpar de times em jogos de 2 sem sobrar um.
  */
 export function buildRevezamentoGroupSchedule(params: {
   buckets: Array<{ group: string; teamIds: string[] }>;
@@ -184,24 +187,16 @@ export function buildRevezamentoGroupSchedule(params: {
   }
 
   const perGroup = buckets.map((bucket) => {
-    const matches = roundRobinRounds(bucket.teamIds).flat();
-    // Reserva, de trás pra frente, o menor conjunto final de confrontos que
-    // cobre todos os times do grupo — geralmente uns poucos jogos — para o
-    // domingo; o resto (a maior parte) fica pro sábado.
-    const covered = new Set<string>();
-    const sundayIdx = new Set<number>();
-    for (let i = matches.length - 1; i >= 0 && covered.size < bucket.teamIds.length; i--) {
-      const [home, away] = matches[i]!;
-      if (!covered.has(home) || !covered.has(away)) {
-        sundayIdx.add(i);
-        covered.add(home);
-        covered.add(away);
-      }
-    }
+    const rounds = roundRobinRounds(bucket.teamIds);
+    // A última rodada (só ela) fica reservada pro domingo — dentro de uma
+    // rodada nenhum time se repete, então ninguém pode ficar com 2 jogos no
+    // mesmo dia. O resto das rodadas fica pro sábado.
+    const sundayRound = rounds.at(-1) ?? [];
+    const saturdayRounds = rounds.slice(0, -1);
     return {
       group: bucket.group,
-      saturdayQueue: matches.filter((_, idx) => !sundayIdx.has(idx)),
-      sundayQueue: matches.filter((_, idx) => sundayIdx.has(idx)),
+      saturdayQueue: saturdayRounds.flat(),
+      sundayQueue: sundayRound,
     };
   });
 
