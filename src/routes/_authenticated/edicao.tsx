@@ -236,6 +236,33 @@ function saveStoredSchedule(
   window.localStorage.setItem(getScheduleStorageKey(editionId), JSON.stringify(values));
 }
 
+type DrawPair = { teamA: string; teamB: string };
+const DRAW_PAIR_CLEAR = "__nenhum__";
+
+function getDrawPairsStorageKey(editionId: string) {
+  return `edition-draw-pairs:${editionId}`;
+}
+
+function readStoredDrawPairs(editionId: string): DrawPair[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(getDrawPairsStorageKey(editionId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Partial<DrawPair>[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .slice(0, 2)
+      .map((p) => ({ teamA: p.teamA ?? "", teamB: p.teamB ?? "" }));
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredDrawPairs(editionId: string, pairs: DrawPair[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(getDrawPairsStorageKey(editionId), JSON.stringify(pairs));
+}
+
 function getPageStateStorageKey() {
   return "edicao-page-state";
 }
@@ -407,6 +434,8 @@ function EdicaoPage() {
     suspension_games_red: "1",
   });
   const [groupCount, setGroupCount] = useState("2");
+  const [drawPair1, setDrawPair1] = useState<DrawPair>({ teamA: "", teamB: "" });
+  const [drawPair2, setDrawPair2] = useState<DrawPair>({ teamA: "", teamB: "" });
   const [ouroSpots, setOuroSpots] = useState("4");
   const [prataSpots, setPrataSpots] = useState("3");
   const [eventDates, setEventDates] = useState<string[]>([]);
@@ -465,6 +494,9 @@ function EdicaoPage() {
       setOuroSpots(String(edition.ouro_qualifiers ?? 4));
       setPrataSpots(String(edition.prata_qualifiers ?? 3));
     }
+    const storedPairs = readStoredDrawPairs(edition.id);
+    setDrawPair1(storedPairs[0] ?? { teamA: "", teamB: "" });
+    setDrawPair2(storedPairs[1] ?? { teamA: "", teamB: "" });
     const storedSchedule = readStoredSchedule(edition.id);
     if (storedSchedule) {
       setEventDates(storedSchedule.eventDates);
@@ -957,10 +989,26 @@ function EdicaoPage() {
       if (!selectedEditionId) throw new Error("Selecione a edição do campeonato");
       const g = Number(groupCount);
       if (!Number.isInteger(g) || g < 1 || g > 8) throw new Error("Número de grupos entre 1 e 8");
-      const pool = shuffle((teams ?? []).filter((team) => team.edition_id === selectedEditionId));
+      const pool = (teams ?? []).filter((team) => team.edition_id === selectedEditionId);
       if (pool.length < 4) throw new Error("Cadastre pelo menos 4 times nesta edição");
       if (g > pool.length)
         throw new Error("Número de grupos não pode ser maior que o número de times");
+
+      // Pares fixos: os dois times de um par sempre caem no mesmo grupo no sorteio.
+      const activePairs = [drawPair1, drawPair2].filter((p) => p.teamA && p.teamB);
+      for (const pair of activePairs) {
+        if (pair.teamA === pair.teamB) throw new Error("Escolha dois times diferentes em cada par fixo");
+      }
+      const pairedTeamIds = activePairs.flatMap((p) => [p.teamA, p.teamB]);
+      if (new Set(pairedTeamIds).size !== pairedTeamIds.length) {
+        throw new Error("Um time não pode aparecer em mais de um par fixo");
+      }
+      for (const teamId of pairedTeamIds) {
+        if (!pool.some((t) => t.id === teamId)) {
+          throw new Error("Um dos times escolhidos nos pares fixos não pertence a esta edição");
+        }
+      }
+
       if (eventDates.length === 0) throw new Error("Selecione ao menos uma data do evento");
       const sortedDates = [...eventDates].sort();
       const step = Number(intervalMin);
@@ -987,17 +1035,34 @@ function EdicaoPage() {
         .filter(Boolean);
       if (fieldList.length === 0) throw new Error("Informe ao menos um campo");
 
-      const buckets: { group: string; teamIds: string[]; names: string[] }[] = Array.from(
-        { length: g },
-        (_, i) => ({ group: GROUP_LETTERS[i]!, teamIds: [], names: [] }),
+      // Cada par fixo vira uma "unidade" de 2 times que sempre cai junto no mesmo grupo; os
+      // times restantes viram unidades de 1, embaralhadas normalmente.
+      const units: { teamIds: string[]; names: string[] }[] = [];
+      const pairedIds = new Set(pairedTeamIds);
+      for (const pair of activePairs) {
+        const teamA = pool.find((t) => t.id === pair.teamA)!;
+        const teamB = pool.find((t) => t.id === pair.teamB)!;
+        units.push({ teamIds: [teamA.id, teamB.id], names: [teamA.name, teamB.name] });
+      }
+      for (const team of shuffle(pool.filter((t) => !pairedIds.has(t.id)))) {
+        units.push({ teamIds: [team.id], names: [team.name] });
+      }
+
+      // Unidades maiores (pares) entram primeiro, sempre no grupo com menos times no momento —
+      // garante que os pares ficam juntos e que a diferença entre grupos nunca passa de 1 time.
+      const orderedUnits = [...units].sort((a, b) => b.teamIds.length - a.teamIds.length);
+      const buckets: { group: string; teamIds: string[]; names: string[] }[] = shuffle(
+        Array.from({ length: g }, (_, i) => ({ group: GROUP_LETTERS[i]!, teamIds: [], names: [] })),
       );
-      // Distribuição round-robin: nenhum time fica de fora e a diferença entre
-      // o maior e o menor grupo nunca passa de 1 time quando não é divisível.
-      pool.forEach((team, index) => {
-        const bucket = buckets[index % g]!;
-        bucket.teamIds.push(team.id);
-        bucket.names.push(team.name);
-      });
+      for (const unit of orderedUnits) {
+        let target = buckets[0]!;
+        for (const bucket of buckets) {
+          if (bucket.teamIds.length < target.teamIds.length) target = bucket;
+        }
+        target.teamIds.push(...unit.teamIds);
+        target.names.push(...unit.names);
+      }
+      buckets.sort((a, b) => a.group.localeCompare(b.group));
 
       for (const bucket of buckets) {
         const { error } = await supabase
@@ -1086,6 +1151,7 @@ function EdicaoPage() {
         dayEndTime: dayEnd,
         blockedRanges,
       });
+      saveStoredDrawPairs(selectedEditionId, activePairs);
 
       const { error } = await supabase.from("matches").insert(rows);
       if (error) throw error;
@@ -2220,6 +2286,82 @@ function EdicaoPage() {
                           value={intervalMin}
                           onChange={(e) => setIntervalMin(e.target.value)}
                         />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg bg-secondary/40 p-4">
+                      <h3 className="text-stencil text-sm font-bold">Pares fixos (opcional)</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Escolha até 2 pares de times que devem cair sempre no mesmo grupo no
+                        sorteio.
+                      </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {([1, 2] as const).map((pairNumber) => {
+                          const pair = pairNumber === 1 ? drawPair1 : drawPair2;
+                          const setPair = pairNumber === 1 ? setDrawPair1 : setDrawPair2;
+                          const usedElsewhere = new Set(
+                            [drawPair1.teamA, drawPair1.teamB, drawPair2.teamA, drawPair2.teamB].filter(
+                              (id) => id && id !== pair.teamA && id !== pair.teamB,
+                            ),
+                          );
+                          return (
+                            <div key={pairNumber} className="space-y-2 rounded-md bg-background/60 p-3">
+                              <Label>Par fixo {pairNumber}</Label>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <Select
+                                  value={pair.teamA || DRAW_PAIR_CLEAR}
+                                  onValueChange={(value) =>
+                                    setPair({
+                                      ...pair,
+                                      teamA: value === DRAW_PAIR_CLEAR ? "" : value,
+                                    })
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Time A" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value={DRAW_PAIR_CLEAR}>Nenhum</SelectItem>
+                                    {editionTeams
+                                      .filter(
+                                        (team) => !usedElsewhere.has(team.id) && team.id !== pair.teamB,
+                                      )
+                                      .map((team) => (
+                                        <SelectItem key={team.id} value={team.id}>
+                                          {team.name}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                                <Select
+                                  value={pair.teamB || DRAW_PAIR_CLEAR}
+                                  onValueChange={(value) =>
+                                    setPair({
+                                      ...pair,
+                                      teamB: value === DRAW_PAIR_CLEAR ? "" : value,
+                                    })
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Time B" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value={DRAW_PAIR_CLEAR}>Nenhum</SelectItem>
+                                    {editionTeams
+                                      .filter(
+                                        (team) => !usedElsewhere.has(team.id) && team.id !== pair.teamA,
+                                      )
+                                      .map((team) => (
+                                        <SelectItem key={team.id} value={team.id}>
+                                          {team.name}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
