@@ -8,6 +8,8 @@ export type Team = {
   edition_id: string | null;
   crest_emoji: string | null;
   logo_url: string | null;
+  /** Opcional porque chega por migration: pré-migration a coluna não vem no select. */
+  instagram?: string | null;
 };
 
 export type Player = {
@@ -15,6 +17,8 @@ export type Player = {
   team_id: string;
   name: string;
   shirt_number: number | null;
+  /** Opcional porque chega por migration: pré-migration a coluna não vem no select. */
+  instagram?: string | null;
 };
 
 export type Match = {
@@ -107,13 +111,16 @@ export function useActiveRules() {
   };
 }
 
+// `select("*")` em times e jogadores, e não a lista de colunas: a coluna `instagram`
+// chega por migration, e um select explícito quebraria o site inteiro (erro 42703) em
+// qualquer ambiente onde a migration ainda não rodou. São duas tabelas pequenas.
 export function useTeams() {
   return useQuery({
     queryKey: ["teams"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("teams")
-        .select("id, name, group_name, edition_id, crest_emoji, logo_url")
+        .select("*")
         .order("group_name", { ascending: true })
         .order("name", { ascending: true });
       if (error) throw error;
@@ -128,7 +135,7 @@ export function usePlayers() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("players")
-        .select("id, team_id, name, shirt_number")
+        .select("*")
         .order("shirt_number", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return (data ?? []) as Player[];
@@ -179,7 +186,9 @@ export function useEvents(matchId?: string) {
   return useQuery({
     queryKey: ["events", matchId ?? "all"],
     queryFn: async () => {
-      let q = supabase.from("match_events").select("id, match_id, player_id, team_id, type, minute");
+      let q = supabase
+        .from("match_events")
+        .select("id, match_id, player_id, team_id, type, minute");
       if (matchId) q = q.eq("match_id", matchId);
       const { data, error } = await q;
       if (error) throw error;
