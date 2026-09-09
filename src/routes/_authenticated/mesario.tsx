@@ -4,10 +4,16 @@ import { useMemo } from "react";
 import { ClipboardList, Lock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useEditions, useEvents, useMatches, useTeams } from "@/hooks/use-tournament";
+import { useEditions, useEvents, useMatches, useTeams, type Match } from "@/hooks/use-tournament";
 import { useAuth } from "@/hooks/use-auth";
 import { isLockedByOther, useMatchLocks } from "@/hooks/use-match-lock";
-import { formatKickoff, matchGroupLabel, phaseLabel, statusLabel } from "@/lib/tournament";
+import {
+  formatKickoff,
+  groupMatchesByDay,
+  matchGroupLabel,
+  phaseLabel,
+  statusLabel,
+} from "@/lib/tournament";
 import { computeGroupStandings } from "@/lib/standings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +35,93 @@ export const Route = createFileRoute("/_authenticated/mesario")({
   }),
   component: MesarioPage,
 });
+
+function MatchRow({
+  match,
+  teamName,
+  isLocked,
+  onDelete,
+  deleting,
+}: {
+  match: Match;
+  teamName: (id: string | null) => string;
+  isLocked: boolean;
+  onDelete: (id: string) => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className="surface-card flex flex-wrap items-center gap-3 p-4">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="secondary">{phaseLabel(match.phase)}</Badge>
+          <span>{formatKickoff(match.kickoff_at)}</span>
+          <span>· {match.field}</span>
+          <span>· {statusLabel(match.status)}</span>
+          {isLocked && (
+            <Badge variant="destructive" className="gap-1">
+              <Lock className="size-3" /> Em uso
+            </Badge>
+          )}
+        </div>
+        {matchGroupLabel(match) && (
+          <p className="mt-0.5 text-xs font-semibold text-primary">{matchGroupLabel(match)}</p>
+        )}
+        <p className="text-stencil mt-1 text-lg font-bold">
+          {teamName(match.home_team_id)} {match.home_score} x {match.away_score}{" "}
+          {teamName(match.away_team_id)}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button asChild size="sm">
+          <Link to="/sumula/$matchId" params={{ matchId: match.id }}>
+            Abrir súmula
+          </Link>
+        </Button>
+        <Button size="sm" variant="destructive" disabled={deleting} onClick={() => onDelete(match.id)}>
+          <Trash2 className="size-4" />
+          Deletar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function MatchDayGroups({
+  matches,
+  teamName,
+  isLocked,
+  onDelete,
+  deleting,
+}: {
+  matches: Match[];
+  teamName: (id: string | null) => string;
+  isLocked: (matchId: string) => boolean;
+  onDelete: (id: string) => void;
+  deleting: boolean;
+}) {
+  const grouped = groupMatchesByDay(matches);
+  return (
+    <div className="space-y-6">
+      {Object.entries(grouped).map(([day, list]) => (
+        <section key={day}>
+          <h3 className="text-stencil mb-2 text-sm font-bold text-primary">{day}</h3>
+          <div className="space-y-3">
+            {list.map((m) => (
+              <MatchRow
+                key={m.id}
+                match={m}
+                teamName={teamName}
+                isLocked={isLocked(m.id)}
+                onDelete={onDelete}
+                deleting={deleting}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
 
 function MesarioPage() {
   const { data: matches } = useMatches();
@@ -174,50 +267,13 @@ function MesarioPage() {
         )}
 
         {activeMatches.length > 0 && (
-          <div className="space-y-3">
-            {activeMatches.map((m) => (
-              <div key={m.id} className="surface-card flex flex-wrap items-center gap-3 p-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant="secondary">{phaseLabel(m.phase)}</Badge>
-                    <span>{formatKickoff(m.kickoff_at)}</span>
-                    <span>· {m.field}</span>
-                    <span>· {statusLabel(m.status)}</span>
-                    {isLockedByOther(locks, m.id, user?.id) && (
-                      <Badge variant="destructive" className="gap-1">
-                        <Lock className="size-3" /> Em uso
-                      </Badge>
-                    )}
-                  </div>
-                  {matchGroupLabel(m) && (
-                    <p className="mt-0.5 text-xs font-semibold text-primary">
-                      {matchGroupLabel(m)}
-                    </p>
-                  )}
-                  <p className="text-stencil mt-1 text-lg font-bold">
-                    {teamName(m.home_team_id)} {m.home_score} x {m.away_score}{" "}
-                    {teamName(m.away_team_id)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button asChild size="sm">
-                    <Link to="/sumula/$matchId" params={{ matchId: m.id }}>
-                      Abrir súmula
-                    </Link>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={deleteMatch.isPending}
-                    onClick={() => handleDeleteMatch(m.id)}
-                  >
-                    <Trash2 className="size-4" />
-                    Deletar
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <MatchDayGroups
+            matches={activeMatches}
+            teamName={teamName}
+            isLocked={(matchId) => isLockedByOther(locks, matchId, user?.id)}
+            onDelete={handleDeleteMatch}
+            deleting={deleteMatch.isPending}
+          />
         )}
 
         {archivedMatches.length > 0 && (
@@ -227,44 +283,14 @@ function MesarioPage() {
                 <span className="text-stencil font-semibold">Partidas encerradas</span>
                 <Badge variant="secondary">{archivedMatches.length}</Badge>
               </AccordionTrigger>
-              <AccordionContent className="mt-2 space-y-3">
-                {archivedMatches.map((m) => (
-                  <div key={m.id} className="surface-card flex flex-wrap items-center gap-3 p-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="secondary">{phaseLabel(m.phase)}</Badge>
-                        <span>{formatKickoff(m.kickoff_at)}</span>
-                        <span>· {m.field}</span>
-                        <span>· {statusLabel(m.status)}</span>
-                      </div>
-                      {matchGroupLabel(m) && (
-                        <p className="mt-0.5 text-xs font-semibold text-primary">
-                          {matchGroupLabel(m)}
-                        </p>
-                      )}
-                      <p className="text-stencil mt-1 text-lg font-bold">
-                        {teamName(m.home_team_id)} {m.home_score} x {m.away_score}{" "}
-                        {teamName(m.away_team_id)}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button asChild size="sm">
-                        <Link to="/sumula/$matchId" params={{ matchId: m.id }}>
-                          Abrir súmula
-                        </Link>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={deleteMatch.isPending}
-                        onClick={() => handleDeleteMatch(m.id)}
-                      >
-                        <Trash2 className="size-4" />
-                        Deletar
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+              <AccordionContent className="mt-2">
+                <MatchDayGroups
+                  matches={archivedMatches}
+                  teamName={teamName}
+                  isLocked={() => false}
+                  onDelete={handleDeleteMatch}
+                  deleting={deleteMatch.isPending}
+                />
               </AccordionContent>
             </AccordionItem>
           </Accordion>

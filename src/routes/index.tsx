@@ -9,7 +9,7 @@ import {
   type Match,
   type Team,
 } from "@/hooks/use-tournament";
-import { formatDate, formatKickoff, phaseLabel, statusLabel } from "@/lib/tournament";
+import { formatKickoff, groupMatchesByDay, phaseLabel, statusLabel } from "@/lib/tournament";
 import { computeGroupStandings, type GroupStandings } from "@/lib/standings";
 import {
   buildSeriesBracket,
@@ -109,15 +109,6 @@ export function MatchCard({ match, teams }: { match: Match; teams: Team[] }) {
   );
 }
 
-function groupByDay(list: Match[]) {
-  return list.reduce<Record<string, Match[]>>((acc, m) => {
-    const weekday = new Date(m.kickoff_at).toLocaleDateString("pt-BR", { weekday: "long" });
-    const key = `${weekday} · ${formatDate(m.kickoff_at)}`;
-    (acc[key] ??= []).push(m);
-    return acc;
-  }, {});
-}
-
 function MatchGroups({
   matches,
   teams,
@@ -127,7 +118,7 @@ function MatchGroups({
   teams: Team[];
   emptyMessage: string;
 }) {
-  const grouped = groupByDay(matches);
+  const grouped = groupMatchesByDay(matches);
 
   if (matches.length === 0) {
     return <div className="surface-card p-8 text-center text-muted-foreground">{emptyMessage}</div>;

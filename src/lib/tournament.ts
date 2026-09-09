@@ -52,3 +52,17 @@ export function formatWeekday(iso: string) {
 export function formatKickoff(iso: string) {
   return `${formatWeekday(iso)} ${formatDate(iso)} ${formatTime(iso)}`;
 }
+
+/** Agrupa uma lista de partidas por dia (mantendo a ordem cronológica de entrada em cada
+ * grupo), com uma chave de exibição tipo "sábado · 12/09/2026" — usado para organizar telas
+ * de jogos (Partidas, Mesário) em blocos por dia em vez de uma lista única. */
+export function groupMatchesByDay<T extends { kickoff_at: string }>(
+  list: T[],
+): Record<string, T[]> {
+  return list.reduce<Record<string, T[]>>((acc, m) => {
+    const weekday = new Date(m.kickoff_at).toLocaleDateString("pt-BR", { weekday: "long" });
+    const key = `${weekday} · ${formatDate(m.kickoff_at)}`;
+    (acc[key] ??= []).push(m);
+    return acc;
+  }, {});
+}
