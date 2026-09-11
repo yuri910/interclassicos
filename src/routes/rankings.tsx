@@ -57,7 +57,6 @@ function RankingsPage() {
       .sort((a, b) => b.total - a.total);
   }, [matches, players, teams]);
 
-
   const rows = useMemo(() => {
     const map = new Map<string, { gols: number; amarelos: number; vermelhos: number }>();
     for (const e of events ?? []) {
@@ -86,11 +85,21 @@ function RankingsPage() {
     .sort((a, b) => b.vermelhos * 10 + b.amarelos - (a.vermelhos * 10 + a.amarelos));
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-8">
-      <h1 className="text-stencil text-4xl font-bold">Rankings</h1>
-      <p className="mt-1 text-muted-foreground">
-        Atualizado automaticamente a cada súmula registrada pelos mesários.
-      </p>
+    <main className="mx-auto max-w-4xl px-4 py-6 sm:py-8">
+      <div className="flex items-center gap-3">
+        <img
+          src="/marca-bola.webp"
+          alt=""
+          aria-hidden
+          className="size-12 shrink-0 object-contain opacity-90 sm:size-14"
+        />
+        <div>
+          <h1 className="text-stencil text-3xl font-bold sm:text-4xl">Rankings</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground sm:text-base">
+            Atualizado automaticamente a cada súmula registrada pelos mesários.
+          </p>
+        </div>
+      </div>
 
       {isLoading ? (
         <Skeleton className="mt-8 h-64 w-full" />
@@ -218,7 +227,6 @@ function RankingsPage() {
             </Table>
           </section>
         </div>
-
       )}
     </main>
   );

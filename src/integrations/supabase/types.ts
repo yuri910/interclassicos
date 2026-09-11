@@ -354,6 +354,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          instagram: string | null
           name: string
           shirt_number: number | null
           team_id: string
@@ -361,6 +362,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          instagram?: string | null
           name: string
           shirt_number?: number | null
           team_id: string
@@ -368,6 +370,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          instagram?: string | null
           name?: string
           shirt_number?: number | null
           team_id?: string
@@ -445,6 +448,7 @@ export type Database = {
           edition_id: string | null
           group_name: string | null
           id: string
+          instagram: string | null
           logo_url: string | null
           name: string
         }
@@ -454,6 +458,7 @@ export type Database = {
           edition_id?: string | null
           group_name?: string | null
           id?: string
+          instagram?: string | null
           logo_url?: string | null
           name: string
         }
@@ -463,6 +468,7 @@ export type Database = {
           edition_id?: string | null
           group_name?: string | null
           id?: string
+          instagram?: string | null
           logo_url?: string | null
           name?: string
         }
@@ -507,6 +513,15 @@ export type Database = {
         Returns: boolean
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      normalize_instagram: { Args: { p_handle: string }; Returns: string }
+      set_player_instagram: {
+        Args: { p_player_id: string; p_handle: string }
+        Returns: string
+      }
+      set_team_instagram: {
+        Args: { p_team_id: string; p_handle: string }
+        Returns: string
+      }
     }
     Enums: {
       app_role: "admin" | "mesario"

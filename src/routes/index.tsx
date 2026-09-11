@@ -9,7 +9,7 @@ import {
   type Match,
   type Team,
 } from "@/hooks/use-tournament";
-import { formatKickoff, groupMatchesByDay, phaseLabel, statusLabel } from "@/lib/tournament";
+import { formatKickoff, phaseLabel, statusLabel } from "@/lib/tournament";
 import { computeGroupStandings, type GroupStandings } from "@/lib/standings";
 import {
   buildSeriesBracket,
@@ -19,6 +19,8 @@ import {
 } from "@/lib/bracket";
 import { cn } from "@/lib/utils";
 import { TeamCrest } from "@/components/TeamCrest";
+import { MatchGroups } from "@/components/MatchGroups";
+import { MatchDetailDialog } from "@/components/MatchDetailDialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -64,81 +66,6 @@ export const Route = createFileRoute("/")({
   }),
   component: MatchesPage,
 });
-
-export function MatchCard({ match, teams }: { match: Match; teams: Team[] }) {
-  const home = teams.find((t) => t.id === match.home_team_id);
-  const away = teams.find((t) => t.id === match.away_team_id);
-  const played = match.status !== "agendada";
-
-  return (
-    <article className="surface-card p-4 transition-colors hover:border-primary/50">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Badge variant="secondary" className="text-stencil">
-          {phaseLabel(match.phase)}
-          {match.group_name ? ` · Grupo ${match.group_name}` : ""}
-        </Badge>
-        <span className="flex items-center gap-1">
-          <Clock className="size-3.5" /> {formatKickoff(match.kickoff_at)}
-        </span>
-        <span className="flex items-center gap-1">
-          <MapPin className="size-3.5" /> {match.field}
-        </span>
-        <span
-          className={
-            match.status === "em_andamento"
-              ? "ml-auto font-semibold text-primary"
-              : "ml-auto text-muted-foreground"
-          }
-        >
-          {statusLabel(match.status)}
-        </span>
-      </div>
-
-      <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-        <div className="text-stencil truncate text-right text-lg font-bold">
-          {home?.crest_emoji ?? ""} {home?.name ?? "A definir"}
-        </div>
-        <div className="text-stencil rounded-md bg-secondary px-3 py-1 text-2xl font-bold tabular-nums">
-          {played ? `${match.home_score} : ${match.away_score}` : "x"}
-        </div>
-        <div className="text-stencil truncate text-lg font-bold">
-          {away?.name ?? "A definir"} {away?.crest_emoji ?? ""}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function MatchGroups({
-  matches,
-  teams,
-  emptyMessage,
-}: {
-  matches: Match[];
-  teams: Team[];
-  emptyMessage: string;
-}) {
-  const grouped = groupMatchesByDay(matches);
-
-  if (matches.length === 0) {
-    return <div className="surface-card p-8 text-center text-muted-foreground">{emptyMessage}</div>;
-  }
-
-  return (
-    <div className="space-y-8">
-      {Object.entries(grouped).map(([day, list]) => (
-        <section key={day}>
-          <h2 className="text-stencil mb-3 text-sm font-bold text-primary">{day}</h2>
-          <div className="space-y-3">
-            {list.map((m) => (
-              <MatchCard key={m.id} match={m} teams={teams} />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
 
 /** Card de um confronto ainda não decidido: mostra a vaga pela posição
  * ("Vaga 2º Lugar do Grupo A") ou o vencedor projetado ("Vencedor do Jogo 1")
@@ -204,6 +131,7 @@ function BracketByeCard({ matchup }: { matchup: BracketMatchup }) {
 /** Card compacto de um confronto decidido/agendado dentro do chaveamento — só o essencial
  * (escudo, nome, placar), sem o cabeçalho de fase/horário/campo do card de lista de jogos. */
 function BracketMatchCard({ match, teams }: { match: Match; teams: Team[] }) {
+  const [detailOpen, setDetailOpen] = useState(false);
   const home = teams.find((t) => t.id === match.home_team_id);
   const away = teams.find((t) => t.id === match.away_team_id);
   const decided = match.status === "encerrada" && match.home_score !== match.away_score;
@@ -240,13 +168,26 @@ function BracketMatchCard({ match, teams }: { match: Match; teams: Team[] }) {
   );
 
   return (
-    <article className="surface-card space-y-1 p-2 transition-colors hover:border-primary/50">
-      {row(home, match.home_score, homeWins)}
-      {row(away, match.away_score, awayWins)}
-      <p className="truncate px-2 pt-0.5 text-[11px] text-muted-foreground">
-        {formatKickoff(match.kickoff_at)}
-      </p>
-    </article>
+    <>
+      <button
+        type="button"
+        onClick={() => setDetailOpen(true)}
+        className="surface-card block w-full cursor-pointer space-y-1 p-2 text-left transition-colors hover:border-primary/50"
+      >
+        {row(home, match.home_score, homeWins)}
+        {row(away, match.away_score, awayWins)}
+        <p className="truncate px-2 pt-0.5 text-[11px] text-muted-foreground">
+          {formatKickoff(match.kickoff_at)}
+        </p>
+      </button>
+
+      <MatchDetailDialog
+        match={match}
+        teams={teams}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      />
+    </>
   );
 }
 
@@ -517,13 +458,25 @@ function MatchesPage() {
     .sort((a, b) => b.kickoff_at.localeCompare(a.kickoff_at));
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-8">
-      <h1 className="text-stencil text-4xl font-bold">Tabela de jogos</h1>
-      <p className="mt-1 text-muted-foreground">
-        Horários, campos e resultados de todas as partidas do campeonato.
-      </p>
+    <main className="pb-10">
+      <section className="hero-estadio border-b border-white/10">
+        <div className="hero-estadio-bg" aria-hidden />
+        <div className="mx-auto flex max-w-4xl flex-col items-center px-4 py-8 text-center sm:py-12">
+          <img
+            src="/interclassicos-logo.webp"
+            alt="Interclássicos DuoVolts"
+            className="h-24 w-auto object-contain drop-shadow-[0_6px_18px_rgba(0,0,0,0.6)] sm:h-32"
+          />
+          <h1 className="text-stencil mt-4 w-full text-3xl font-bold sm:text-4xl">
+            Tabela de jogos
+          </h1>
+          <p className="mt-1 w-full text-sm text-balance text-foreground/70 sm:text-base">
+            Horários, campos e resultados de todas as partidas do campeonato.
+          </p>
+        </div>
+      </section>
 
-      <div className="mt-8">
+      <div className="mx-auto mt-6 max-w-4xl px-4 sm:mt-8">
         {isLoading && (
           <div className="space-y-3">
             <Skeleton className="h-28 w-full" />
@@ -560,7 +513,7 @@ function MatchesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <TabsList>
+            <TabsList className="flex w-full justify-start overflow-x-auto [scrollbar-width:none] sm:w-auto">
               <TabsTrigger value="upcoming">Próximos jogos</TabsTrigger>
               <TabsTrigger value="finished">Jogos encerrados</TabsTrigger>
               <TabsTrigger value="playoffs">Playoffs</TabsTrigger>
