@@ -16,6 +16,7 @@ import { acquireMatchLock, heartbeatMatchLock, releaseMatchLock } from "@/hooks/
 import { formatKickoff, matchGroupLabel, phaseLabel } from "@/lib/tournament";
 import { computeSuspensions } from "@/lib/suspensions";
 import { generateAndStoreMatchStory } from "@/lib/marketing";
+import { useSponsors } from "@/hooks/use-marketing";
 import { FoulsPanel } from "@/components/FoulsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,7 @@ function SumulaPage() {
   const { data: events } = useEvents(matchId);
   const { data: allEvents } = useEvents();
   const { rules, edition } = useActiveRules();
+  const { data: sponsors } = useSponsors();
   const { user } = useAuth();
 
   // Trava a súmula pro mesário atual assim que a página abre — se outro mesário já estiver
@@ -253,6 +255,7 @@ function SumulaPage() {
           events: events ?? [],
           tournamentLogoUrl: edition?.logo_url,
           backgroundUrl: edition?.story_background_url,
+          sponsors: sponsors ?? [],
         })
           .then(() => {
             queryClient.invalidateQueries({ queryKey: ["marketing_stories"] });

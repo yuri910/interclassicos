@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Match, MatchEvent, Player, Team } from "@/hooks/use-tournament";
+import type { Sponsor } from "@/hooks/use-marketing";
 import { generateMatchStoryImage, generateMvpStoryImage } from "@/lib/story-image";
 import { matchGroupLabel, phaseLabel } from "@/lib/tournament";
 
@@ -11,8 +12,9 @@ export async function generateAndStoreMatchStory(params: {
   events: MatchEvent[];
   tournamentLogoUrl?: string | null | undefined;
   backgroundUrl?: string | null | undefined;
+  sponsors?: Sponsor[];
 }) {
-  const { match, teams, players, events, tournamentLogoUrl, backgroundUrl } = params;
+  const { match, teams, players, events, tournamentLogoUrl, backgroundUrl, sponsors } = params;
   const home = teams.find((t) => t.id === match.home_team_id);
   const away = teams.find((t) => t.id === match.away_team_id);
   if (!home || !away) throw new Error("Times da partida não encontrados.");
@@ -41,6 +43,7 @@ export async function generateAndStoreMatchStory(params: {
     homeEvents: teamEvents(home.id),
     awayEvents: teamEvents(away.id),
     competitionLabel,
+    sponsors: (sponsors ?? []).map((s) => ({ logoUrl: s.logo_url, isMaster: s.is_master })),
   });
 
   const path = `stories/${match.id}-resultado-${Date.now()}.png`;
@@ -69,8 +72,9 @@ export async function generateAndStoreMvpStory(params: {
   players: Player[];
   photoBlob: Blob;
   backgroundUrl?: string | null | undefined;
+  sponsors?: Sponsor[];
 }) {
-  const { taskId, match, teams, players, photoBlob, backgroundUrl } = params;
+  const { taskId, match, teams, players, photoBlob, backgroundUrl, sponsors } = params;
   const home = teams.find((t) => t.id === match.home_team_id);
   const away = teams.find((t) => t.id === match.away_team_id);
   const mvp = players.find((p) => p.id === match.mvp_player_id);
@@ -93,6 +97,7 @@ export async function generateAndStoreMvpStory(params: {
     teamLogoUrl: mvpTeam?.logo_url ?? null,
     homeTeamName: home.name,
     awayTeamName: away.name,
+    sponsors: (sponsors ?? []).map((s) => ({ logoUrl: s.logo_url, isMaster: s.is_master })),
   });
 
   const storyPath = `stories/${match.id}-craque-${Date.now()}.png`;

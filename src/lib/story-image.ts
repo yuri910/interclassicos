@@ -194,6 +194,91 @@ async function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
+export type SponsorLogo = { logoUrl: string; isMaster: boolean };
+
+const SPONSOR_BAR_BG = "oklch(0.98 0.005 255)";
+const SPONSOR_BAR_TEXT = "oklch(0.2 0.03 265)";
+const SPONSOR_MASTER_H = 120;
+const SPONSOR_OTHER_H = 76;
+
+/** Altura da faixa branca — sempre 10% da altura do Stories, com os logos contidos e
+ * centralizados dentro dela (nada vaza pra fora). Usada tanto pra desenhar quanto pra reservar
+ * espaço no layout do conteúdo acima, sem duplicar os números mágicos. */
+function sponsorBarHeight(sponsors: SponsorLogo[], label?: string): number {
+  if (sponsors.length === 0 && !label) return 0;
+  return Math.round(HEIGHT * 0.1);
+}
+
+/** Faixa branca na base do Stories com os logos dos patrocinadores (na própria transparência do
+ * PNG, sem chip por trás) sempre contidos e centralizados dentro dela. O patrocinador master
+ * fica sempre no centro da fileira e maior que os demais. `label` opcional (ex.: "OFERECIMENTO")
+ * aparece como um título centralizado acima dos logos. */
+async function drawSponsorBar(ctx: CanvasRenderingContext2D, sponsors: SponsorLogo[], label?: string) {
+  const barHeight = sponsorBarHeight(sponsors, label);
+  if (barHeight === 0) return;
+  const barY = HEIGHT - barHeight;
+
+  ctx.save();
+  ctx.fillStyle = SPONSOR_BAR_BG;
+  ctx.fillRect(0, barY, WIDTH, barHeight);
+  ctx.fillStyle = PRIMARY;
+  ctx.fillRect(0, barY, WIDTH, 4);
+  ctx.restore();
+
+  if (sponsors.length === 0) {
+    if (label) {
+      ctx.textAlign = "left";
+      ctx.fillStyle = SPONSOR_BAR_TEXT;
+      ctx.font = `700 34px ${DISPLAY_FONT}`;
+      ctx.fillText(label, 32, barY + barHeight / 2 + 12);
+    }
+    return;
+  }
+
+  const loaded = (
+    await Promise.all(
+      sponsors.map(async (s) => ({ img: await tryLoadImage(s.logoUrl), isMaster: s.isMaster })),
+    )
+  ).filter((s): s is { img: HTMLImageElement; isMaster: boolean } => s.img !== null);
+  if (loaded.length === 0) return;
+
+  // O master fica sempre no meio da fileira, com os demais patrocinadores nos dois lados.
+  const master = loaded.find((s) => s.isMaster) ?? null;
+  const others = loaded.filter((s) => s !== master);
+  const half = Math.floor(others.length / 2);
+  const ordered = master ? [...others.slice(0, half), master, ...others.slice(half)] : others;
+
+  let rowCenterY: number;
+  if (label) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = SPONSOR_BAR_TEXT;
+    ctx.font = `700 24px ${DISPLAY_FONT}`;
+    ctx.fillText(label, 32, barY + 32);
+    rowCenterY = barY + 44 + Math.max(SPONSOR_MASTER_H, SPONSOR_OTHER_H) / 2;
+  } else {
+    rowCenterY = barY + barHeight / 2;
+  }
+
+  const gap = 32;
+  const heights = ordered.map((s) => (s.isMaster ? SPONSOR_MASTER_H : SPONSOR_OTHER_H));
+  const widths = ordered.map((s, i) => (s.img.width / s.img.height) * heights[i]!);
+  const totalWidth = widths.reduce((a, b) => a + b, 0) + gap * (ordered.length - 1);
+
+  // Nunca deixa a fileira estourar a largura do Stories — se não coube, encolhe tudo
+  // proporcionalmente (o master continua maior que os demais) em vez de cortar as pontas.
+  const maxRowWidth = WIDTH - 80;
+  const fit = totalWidth > maxRowWidth ? maxRowWidth / totalWidth : 1;
+
+  let cx = WIDTH / 2 - (totalWidth * fit) / 2;
+
+  ordered.forEach((s, i) => {
+    const h = heights[i]! * fit;
+    const w = widths[i]! * fit;
+    drawContainImage(ctx, s.img, cx + w / 2, rowCenterY, w, h);
+    cx += w + gap * fit;
+  });
+}
+
 export type MatchStoryGoal = { playerName: string; minute: number | null };
 export type MatchStoryTeamEvents = {
   goals: MatchStoryGoal[];
@@ -209,6 +294,7 @@ export type MatchStoryParams = {
   homeEvents: MatchStoryTeamEvents;
   awayEvents: MatchStoryTeamEvents;
   competitionLabel: string;
+  sponsors?: SponsorLogo[];
 };
 
 export async function generateMatchStoryImage(params: MatchStoryParams): Promise<Blob> {
@@ -233,8 +319,11 @@ export async function generateMatchStoryImage(params: MatchStoryParams): Promise
 
   drawBackground(ctx, background);
 
+  const sponsors = params.sponsors ?? [];
+  const barHeight = sponsorBarHeight(sponsors);
+
   // Painel de conteúdo: escudos + placar +, embaixo de cada escudo, os gols/expulsões daquele
-  // time — sempre legível sobre a foto de fundo.
+  // time — sempre legível sobre a foto de fundo, sem passar por cima da barra de patrocinadores.
   const crestRadius = 120;
   const logoBlockH = tournamentLogo ? 90 : 0;
   const homeRows = params.homeEvents.goals.length + params.homeEvents.redCards.length;
@@ -242,8 +331,10 @@ export async function generateMatchStoryImage(params: MatchStoryParams): Promise
   const hasAnyEvent = homeRows + awayRows > 0;
   const listBlockH = hasAnyEvent ? Math.max(homeRows, awayRows) * 50 + 20 : 60;
   const panelH = 60 + logoBlockH + crestRadius * 2 + 70 + 90 + 70 + 50 + listBlockH + 50;
-  // Centralizado no post inteiro — só recua se isso empurrasse o painel pra cima da borda.
-  const panelTop = Math.min(Math.max(140, (HEIGHT - panelH) / 2), HEIGHT - panelH - 20);
+  const availableH = HEIGHT - barHeight;
+  // Centralizado no post inteiro (não só no espaço acima da barra) — só recua se isso
+  // empurrasse o painel pra cima da borda ou por cima da barra de patrocinadores.
+  const panelTop = Math.min(Math.max(140, (HEIGHT - panelH) / 2), availableH - panelH - 20);
   const panelX = 56;
   const panelW = WIDTH - panelX * 2;
 
@@ -323,10 +414,14 @@ export async function generateMatchStoryImage(params: MatchStoryParams): Promise
     ctx.fillText("Nenhum gol na partida.", WIDTH / 2, y);
   }
 
-  ctx.textAlign = "center";
-  ctx.fillStyle = MUTED;
-  ctx.font = "600 28px system-ui, sans-serif";
-  ctx.fillText("Interclássicos", WIDTH / 2, HEIGHT - 50);
+  if (barHeight === 0) {
+    ctx.textAlign = "center";
+    ctx.fillStyle = MUTED;
+    ctx.font = "600 28px system-ui, sans-serif";
+    ctx.fillText("Interclássicos", WIDTH / 2, HEIGHT - 50);
+  } else {
+    await drawSponsorBar(ctx, sponsors);
+  }
 
   return toBlob(canvas);
 }
@@ -339,6 +434,7 @@ export type MvpStoryParams = {
   teamLogoUrl: string | null;
   homeTeamName: string;
   awayTeamName: string;
+  sponsors?: SponsorLogo[];
 };
 
 export async function generateMvpStoryImage(params: MvpStoryParams): Promise<Blob> {
@@ -357,6 +453,9 @@ export async function generateMvpStoryImage(params: MvpStoryParams): Promise<Blo
   ]);
 
   drawBackground(ctx, background);
+
+  const sponsors = params.sponsors ?? [];
+  const barHeight = sponsorBarHeight(sponsors, "OFERECIMENTO");
 
   // O topo — 1/3 da altura do Stories — fica livre pro logo do fundo (nada nosso é desenhado
   // ali), e o título "Craque da partida" fica bem colado logo acima da foto do craque.
@@ -399,8 +498,10 @@ export async function generateMvpStoryImage(params: MvpStoryParams): Promise<Blo
   ctx.fillStyle = FG;
   ctx.font = `600 28px ${DISPLAY_FONT}`;
   const caption = `Vencedor do prêmio craque da partida jogo ${params.homeTeamName} vs ${params.awayTeamName}`;
-  const contentBottom = HEIGHT - 40;
+  const contentBottom = HEIGHT - barHeight - 40;
   wrapText(ctx, caption, WIDTH / 2, Math.min(cy, contentBottom), WIDTH - 160, 36);
+
+  await drawSponsorBar(ctx, sponsors, "OFERECIMENTO");
 
   return toBlob(canvas);
 }

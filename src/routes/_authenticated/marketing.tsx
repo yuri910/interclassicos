@@ -8,6 +8,7 @@ import { useActiveRules, useMatches, usePlayers, useTeams } from "@/hooks/use-to
 import {
   useMarketingStories,
   useMarketingTasks,
+  useSponsors,
   marketingPublicUrl,
   type MarketingStory,
 } from "@/hooks/use-marketing";
@@ -39,6 +40,7 @@ function MarketingPage() {
   const { data: matches } = useMatches();
   const { data: teams } = useTeams();
   const { data: players } = usePlayers();
+  const { data: sponsors } = useSponsors();
   const { edition } = useActiveRules();
   const queryClient = useQueryClient();
 
@@ -75,6 +77,7 @@ function MarketingPage() {
         players: players ?? [],
         photoBlob: preview.file,
         backgroundUrl: edition?.story_background_url,
+        sponsors: sponsors ?? [],
       });
     },
     onSuccess: (_data, taskId) => {
