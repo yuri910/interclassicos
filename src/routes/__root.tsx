@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppHeader } from "@/components/AppHeader";
 import { AdBanner } from "@/components/AdBanner";
+import { MatchTicker } from "@/components/MatchTicker";
 import { Toaster } from "@/components/ui/sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -141,9 +142,16 @@ function RootComponent() {
       <div className="min-h-screen">
         <AppHeader />
         <Outlet />
+        <MatchTicker />
       </div>
       <AdBanner />
-      <Toaster position="bottom-left" richColors />
+      {/* Deslocado pra cima da barra de jogos, que é fixa no rodapé. */}
+      <Toaster
+        position="bottom-left"
+        richColors
+        offset={{ bottom: "6rem" }}
+        mobileOffset={{ bottom: "6rem", left: "1rem", right: "1rem" }}
+      />
     </QueryClientProvider>
   );
 }

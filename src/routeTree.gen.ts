@@ -19,6 +19,7 @@ import { Route as AuthenticatedContaRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedEdicaoRouteImport } from './routes/_authenticated/edicao'
 import { Route as AuthenticatedMarketingRouteImport } from './routes/_authenticated/marketing'
 import { Route as AuthenticatedMesarioRouteImport } from './routes/_authenticated/mesario'
+import { Route as TimesTeamIdRouteImport } from './routes/times.$teamId'
 import { Route as AuthenticatedSumulaMatchIdRouteImport } from './routes/_authenticated/sumula.$matchId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -70,6 +71,11 @@ const AuthenticatedMesarioRoute = AuthenticatedMesarioRouteImport.update({
   path: '/mesario',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const TimesTeamIdRoute = TimesTeamIdRouteImport.update({
+  id: '/times/$teamId',
+  path: '/times/$teamId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSumulaMatchIdRoute =
   AuthenticatedSumulaMatchIdRouteImport.update({
     id: '/sumula/$matchId',
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/edicao': typeof AuthenticatedEdicaoRoute
   '/marketing': typeof AuthenticatedMarketingRoute
   '/mesario': typeof AuthenticatedMesarioRoute
+  '/times/$teamId': typeof TimesTeamIdRoute
   '/sumula/$matchId': typeof AuthenticatedSumulaMatchIdRoute
 }
 export interface FileRoutesByTo {
@@ -99,6 +106,7 @@ export interface FileRoutesByTo {
   '/edicao': typeof AuthenticatedEdicaoRoute
   '/marketing': typeof AuthenticatedMarketingRoute
   '/mesario': typeof AuthenticatedMesarioRoute
+  '/times/$teamId': typeof TimesTeamIdRoute
   '/sumula/$matchId': typeof AuthenticatedSumulaMatchIdRoute
 }
 export interface FileRoutesById {
@@ -113,6 +121,7 @@ export interface FileRoutesById {
   '/_authenticated/edicao': typeof AuthenticatedEdicaoRoute
   '/_authenticated/marketing': typeof AuthenticatedMarketingRoute
   '/_authenticated/mesario': typeof AuthenticatedMesarioRoute
+  '/times/$teamId': typeof TimesTeamIdRoute
   '/_authenticated/sumula/$matchId': typeof AuthenticatedSumulaMatchIdRoute
 }
 export interface FileRouteTypes {
@@ -127,6 +136,7 @@ export interface FileRouteTypes {
     | '/edicao'
     | '/marketing'
     | '/mesario'
+    | '/times/$teamId'
     | '/sumula/$matchId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/edicao'
     | '/marketing'
     | '/mesario'
+    | '/times/$teamId'
     | '/sumula/$matchId'
   id:
     | '__root__'
@@ -152,6 +163,7 @@ export interface FileRouteTypes {
     | '/_authenticated/edicao'
     | '/_authenticated/marketing'
     | '/_authenticated/mesario'
+    | '/times/$teamId'
     | '/_authenticated/sumula/$matchId'
   fileRoutesById: FileRoutesById
 }
@@ -161,6 +173,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ClassificacaoRoute: typeof ClassificacaoRoute
   RankingsRoute: typeof RankingsRoute
+  TimesTeamIdRoute: typeof TimesTeamIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -235,6 +248,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMesarioRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/times/$teamId': {
+      id: '/times/$teamId'
+      path: '/times/$teamId'
+      fullPath: '/times/$teamId'
+      preLoaderRoute: typeof TimesTeamIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/sumula/$matchId': {
       id: '/_authenticated/sumula/$matchId'
       path: '/sumula/$matchId'
@@ -272,6 +292,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ClassificacaoRoute: ClassificacaoRoute,
   RankingsRoute: RankingsRoute,
+  TimesTeamIdRoute: TimesTeamIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
