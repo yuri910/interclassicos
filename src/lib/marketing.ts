@@ -3,6 +3,7 @@ import type { Match, MatchEvent, Player, Team } from "@/hooks/use-tournament";
 import type { Sponsor } from "@/hooks/use-marketing";
 import { generateMatchStoryImage, generateMvpStoryImage } from "@/lib/story-image";
 import { matchGroupLabel, phaseLabel } from "@/lib/tournament";
+import { teamCrestUrl } from "@/lib/team-logos";
 
 /** Gera a arte de resultado da partida e cria a pendência de foto do craque. Chamado ao encerrar uma súmula. */
 export async function generateAndStoreMatchStory(params: {
@@ -36,8 +37,8 @@ export async function generateAndStoreMatchStory(params: {
   const blob = await generateMatchStoryImage({
     tournamentLogoUrl,
     backgroundUrl,
-    homeTeam: { name: home.name, logoUrl: home.logo_url },
-    awayTeam: { name: away.name, logoUrl: away.logo_url },
+    homeTeam: { name: home.name, logoUrl: teamCrestUrl(home.name, home.logo_url) },
+    awayTeam: { name: away.name, logoUrl: teamCrestUrl(away.name, away.logo_url) },
     homeScore: match.home_score,
     awayScore: match.away_score,
     homeEvents: teamEvents(home.id),
@@ -94,7 +95,7 @@ export async function generateAndStoreMvpStory(params: {
     photoUrl,
     playerName: mvp.name,
     teamName: mvpTeam?.name ?? "—",
-    teamLogoUrl: mvpTeam?.logo_url ?? null,
+    teamLogoUrl: teamCrestUrl(mvpTeam?.name, mvpTeam?.logo_url),
     homeTeamName: home.name,
     awayTeamName: away.name,
     sponsors: (sponsors ?? []).map((s) => ({ logoUrl: s.logo_url, isMaster: s.is_master })),
