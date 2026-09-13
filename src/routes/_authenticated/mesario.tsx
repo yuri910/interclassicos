@@ -167,9 +167,12 @@ function MesarioPage() {
   );
   const activeMatches = editionMatchesAll.filter((match) => match.status !== "encerrada");
   const archivedMatches = editionMatchesAll.filter((match) => match.status === "encerrada");
+  // Assim que os playoffs já foram gerados (existem partidas de mata-mata reais na lista
+  // abaixo), esse resumo de "quem classificaria" fica redundante e só polui a tela.
+  const playoffsGenerated = editionMatchesAll.some((match) => match.phase !== "grupos");
 
   const playoffSummary = useMemo(() => {
-    if (!activeEdition) return null;
+    if (!activeEdition || playoffsGenerated) return null;
 
     const editionTeams = (teams ?? []).filter((team) => team.edition_id === activeEdition.id);
     const editionMatches = (matches ?? []).filter((match) => match.edition_id === activeEdition.id);
@@ -187,7 +190,7 @@ function MesarioPage() {
       ouroSpots,
       allComplete,
     };
-  }, [activeEdition, teams, matches, events]);
+  }, [activeEdition, teams, matches, events, playoffsGenerated]);
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-8">
